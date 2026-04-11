@@ -1,0 +1,26 @@
+[Unit]
+Description=PTT Demo API Service (FastAPI/Uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Update User/Group to a non-root service account in production
+User=freeswitch
+Group=freeswitch
+WorkingDirectory=/opt/freeswitch/src/scripts/python/ptt_demo
+EnvironmentFile=/etc/default/ptt-demo-api
+ExecStart=/opt/freeswitch/src/scripts/python/ptt_demo/.venv/bin/python -m uvicorn ptt_demo_service:app --host ${API_HOST} --port ${API_PORT}
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+KillSignal=SIGINT
+
+# Basic hardening (adjust if your environment needs broader access)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

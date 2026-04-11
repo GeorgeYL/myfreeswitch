@@ -1,0 +1,21 @@
+{
+  "solution": {
+    "path": "Freeswitch.2017.sln",
+    "projects": [
+      "w32\\Library\\FreeSwitchCore.2017.vcxproj",
+      "w32\\Console\\FreeSwitchConsole.2017.vcxproj",
+      "src\\mod\\endpoints\\mod_sofia\\mod_sofia.2017.vcxproj",
+      "src\\mod\\applications\\mod_conference\\mod_conference.2017.vcxproj",
+      "src\\mod\\event_handlers\\mod_event_socket\\mod_event_socket.2017.vcxproj",
+      "src\\mod\\dialplans\\mod_dialplan_xml\\mod_dialplan_xml.2017.vcxproj",
+      "src\\mod\\applications\\mod_dptools\\mod_dptools.2017.vcxproj",
+      "src\\mod\\applications\\mod_commands\\mod_commands.2017.vcxproj",
+      "src\\mod\\formats\\mod_native_file\\mod_native_file.2017.vcxproj",
+      "src\\mod\\formats\\mod_sndfile\\mod_sndfile.2017.vcxproj",
+      "src\\mod\\endpoints\\mod_loopback\\mod_loopback.2017.vcxproj",
+      "src\\mod\\codecs\\mod_opus\\mod_opus.2017.vcxproj",
+      "src\\mod\\loggers\\mod_console\\mod_console.2017.vcxproj",
+      "src\\mod\\loggers\\mod_logfile\\mod_logfile.2017.vcxproj"
+    ]
+  }
+}

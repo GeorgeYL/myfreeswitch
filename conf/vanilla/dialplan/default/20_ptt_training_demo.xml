@@ -1,0 +1,23 @@
+<include>
+  <extension name="ptt-training-router">
+    <condition field="destination_number" expression="^7([1-4])([1-4])$">
+      <action application="set" data="ptt_site=$1"/>
+      <action application="set" data="ptt_channel=$2"/>
+      <action application="set" data="ptt_room=ptt_s${ptt_site}_c${ptt_channel}@${domain_name}"/>
+      <action application="set" data="hangup_after_conference=true"/>
+
+      <!-- Save a deterministic recording path per endpoint call leg. -->
+      <action application="set" data="ptt_record_file=$${recordings_dir}/ptt/${strftime(%Y%m%d-%H%M%S)}_${caller_id_number}_${destination_number}_${uuid}.wav"/>
+      <action application="set" data="execute_on_answer=record_session ${ptt_record_file}"/>
+
+      <!-- Export fields for ESL log collector. -->
+      <action application="export" data="nolocal:ptt_site=${ptt_site}"/>
+      <action application="export" data="nolocal:ptt_channel=${ptt_channel}"/>
+      <action application="export" data="nolocal:ptt_room=${ptt_room}"/>
+      <action application="export" data="nolocal:ptt_record_file=${ptt_record_file}"/>
+
+      <action application="answer"/>
+      <action application="conference" data="${ptt_room}"/>
+    </condition>
+  </extension>
+</include>
