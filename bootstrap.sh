@@ -340,7 +340,7 @@ bootstrap_apr() {
 
   echo "Entering directory ${LIBDIR}/apr-util"
   cd ${LIBDIR}/apr-util
-  ./buildconf
+  sh ./buildconf
 }
 
 bootstrap_libzrtp() {
