@@ -222,6 +222,14 @@ chmod +x ./scripts/python/ptt_demo/install_systemd_service.sh
 sudo ./scripts/python/ptt_demo/install_systemd_service.sh
 ```
 
+若工作目录在 `/root/...`（例如 `/root/myfreeswitch/scripts/python/ptt_demo`），推荐显式指定 root 账户，避免 `status=217/USER`：
+
+```bash
+sudo ./scripts/python/ptt_demo/install_systemd_service.sh --user root --group root --workdir /root/myfreeswitch/scripts/python/ptt_demo
+```
+
+如果日志出现 `status=200/CHDIR`，通常是 `WorkingDirectory` 路径不正确，或服务启用了 `ProtectHome=true` 且工作目录位于 `/root/...`。
+
 脚本会自动：
 
 1. 安装 unit 到 `/etc/systemd/system/ptt-demo-api.service`

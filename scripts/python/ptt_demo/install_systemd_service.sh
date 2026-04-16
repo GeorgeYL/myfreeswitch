@@ -12,8 +12,8 @@ ENV_EXAMPLE="$SCRIPT_DIR/ptt-demo-api.env.example"
 UNIT_DEST="/etc/systemd/system/$SERVICE_NAME"
 ENV_DEST="/etc/default/ptt-demo-api"
 
-SERVICE_USER="freeswitch"
-SERVICE_GROUP="freeswitch"
+SERVICE_USER="root"
+SERVICE_GROUP="root"
 WORKDIR_DEFAULT="$SCRIPT_DIR"
 WORKDIR="$WORKDIR_DEFAULT"
 ENABLE_NOW=1
@@ -23,8 +23,8 @@ usage() {
 Usage: install_systemd_service.sh [options]
 
 Options:
-  --user <name>          Service user (default: freeswitch)
-  --group <name>         Service group (default: freeswitch)
+  --user <name>          Service user (default: root)
+  --group <name>         Service group (default: root)
   --workdir <path>       ptt_demo directory path (default: script dir)
   --no-enable            Install only; do not enable/start service
   -h, --help             Show this help
@@ -76,6 +76,16 @@ if [[ ! -d "$WORKDIR" ]]; then
   exit 1
 fi
 
+if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
+  echo "ERROR: Service user does not exist: $SERVICE_USER" >&2
+  exit 1
+fi
+
+if ! getent group "$SERVICE_GROUP" >/dev/null 2>&1; then
+  echo "ERROR: Service group does not exist: $SERVICE_GROUP" >&2
+  exit 1
+fi
+
 if [[ ! -x "$WORKDIR/.venv/bin/python" ]]; then
   echo "ERROR: Python venv not ready: $WORKDIR/.venv/bin/python" >&2
   echo "Run run_demo_linux.sh once to bootstrap venv and dependencies." >&2
@@ -89,6 +99,7 @@ sed -i "s|^User=.*$|User=$SERVICE_USER|" "$tmp_unit"
 sed -i "s|^Group=.*$|Group=$SERVICE_GROUP|" "$tmp_unit"
 sed -i "s|^WorkingDirectory=.*$|WorkingDirectory=$WORKDIR|" "$tmp_unit"
 sed -i "s|^ExecStart=.*$|ExecStart=$WORKDIR/.venv/bin/python -m uvicorn ptt_demo_service:app --host \\\${API_HOST} --port \\\${API_PORT}|" "$tmp_unit"
+sed -i "s|^ProtectHome=.*$|ProtectHome=false|" "$tmp_unit"
 
 install -m 0644 "$tmp_unit" "$UNIT_DEST"
 rm -f "$tmp_unit"
