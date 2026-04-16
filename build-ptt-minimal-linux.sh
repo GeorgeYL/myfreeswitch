@@ -12,6 +12,7 @@ JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 SKIP_INSTALL=0
 KEEP_MODULES_CONF=0
 EXTRA_CONFIGURE_ARGS=""
+ALLOW_WARNINGS=1
 
 usage() {
   cat <<'EOF'
@@ -22,6 +23,7 @@ Options:
   --jobs <n>               Parallel build jobs (default: CPU cores)
   --skip-install           Build only, do not run make install
   --keep-modules-conf      Keep generated modules.conf after build (no restore)
+  --strict-werror          Keep warnings as errors (disable -Wno-error override)
   --configure-args "..."   Extra args passed to ./configure
   -h, --help               Show this help
 EOF
@@ -43,6 +45,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --keep-modules-conf)
       KEEP_MODULES_CONF=1
+      shift
+      ;;
+    --strict-werror)
+      ALLOW_WARNINGS=0
       shift
       ;;
     --configure-args)
@@ -97,6 +103,12 @@ restore_modules_conf() {
 trap restore_modules_conf EXIT
 
 cp build/modules.conf.ptt.minimal modules.conf
+
+if [[ "$ALLOW_WARNINGS" -eq 1 ]]; then
+  # Keep builds moving on older codebases that trigger modern compiler warnings.
+  export CFLAGS="${CFLAGS:-} -Wno-error"
+  export CXXFLAGS="${CXXFLAGS:-} -Wno-error"
+fi
 
 echo "==> bootstrap"
 ./bootstrap.sh -v
