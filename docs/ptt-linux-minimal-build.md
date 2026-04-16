@@ -55,6 +55,17 @@ sudo dnf install -y \
 
 说明：不同发行版包名略有差异，可按 `./configure` 报错补齐。
 
+当前最小 PTT 构建默认不包含 `mod_opus`，这样可以避免额外的 Opus 开发库依赖。
+如果你需要 Opus 编解码支持，再把 `build/modules.conf.ptt.minimal` 中的 `codecs/mod_opus` 加回去，并安装：
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install -y libopus-dev
+
+# CentOS/RHEL 7/8/Stream 9
+sudo yum install -y opus-devel || sudo dnf install -y opus-devel
+```
+
 ---
 
 ## 4. 一键最小构建
@@ -141,6 +152,26 @@ chmod +x ./scripts/python/ptt_demo/generate_bot_audio_linux.sh
 4. 生成机器人语音 WAV
 5. 启动 API
 6. 执行 API 冒烟测试
+
+额外说明：`run_demo_linux.sh` 在启动 API 前会生成机器人语音 WAV，默认依赖以下任一方案：
+
+```bash
+# 方案 A：pico2wave
+# Ubuntu/Debian
+sudo apt-get install -y libttspico-utils
+
+# 方案 B：espeak-ng（推荐，通常无需 ffmpeg）
+# Ubuntu/Debian
+sudo apt-get install -y espeak-ng
+
+# CentOS/RHEL 7/8
+sudo yum install -y espeak-ng
+
+# CentOS Stream 9
+sudo dnf install -y espeak-ng
+```
+
+如果两类 TTS 引擎都没安装，脚本会在 `Generating bot audio...` 阶段退出。
 
 常用参数：
 

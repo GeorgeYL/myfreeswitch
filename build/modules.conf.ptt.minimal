@@ -7,8 +7,6 @@ applications/mod_db
 applications/mod_dptools
 applications/mod_expr
 
-codecs/mod_opus
-
 # XML dialplan used by demo routing rules
 
 dialplans/mod_dialplan_xml
