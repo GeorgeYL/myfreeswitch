@@ -191,6 +191,21 @@ Python 版本说明：Demo API 在 Python 3.6 环境会自动安装兼容版 Fas
 ./scripts/python/ptt_demo/run_demo_linux.sh --no-smoke-test
 ```
 
+### 7.1 冒烟结果判读
+
+如果 `api_smoke_test_linux.sh` 输出中出现如下结果：
+
+```json
+"freeswitch_result":"-ERR Conference ptt_s1_c1@127.0.0.1 not found"
+```
+
+通常表示：
+
+1. API 本身可用（`/health` 已通过）
+2. 目标会议房间当前没有在线成员，因此 bot 注入失败
+
+这不代表 API 启动失败。若需要验证 bot 语音注入成功，请先让至少一个终端入会（例如注册分机后拨打 `7111` 进入 `ptt_s1_c1@127.0.0.1`），再重跑冒烟测试。
+
 ---
 
 ## 8. 切回全量构建
