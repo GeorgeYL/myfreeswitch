@@ -206,6 +206,39 @@ Python 版本说明：Demo API 在 Python 3.6 环境会自动安装兼容版 Fas
 
 这不代表 API 启动失败。若需要验证 bot 语音注入成功，请先让至少一个终端入会（例如注册分机后拨打 `7111` 进入 `ptt_s1_c1@127.0.0.1`），再重跑冒烟测试。
 
+结合一次真实输出示例：
+
+```text
+Checking health...
+{"status":"ok"}
+Checking logs endpoint...
+log_count=(install jq to show count)
+Triggering bot reply for site=1 channel=1...
+{"room":"ptt_s1_c1@127.0.0.1","question":"need safety reminder","answer_file":"bot_audio/qa_safety.wav","freeswitch_result":"-ERR Conference ptt_s1_c1@127.0.0.1 not found"}
+```
+
+可按下列方式判定：
+
+1. `{"status":"ok"}`：API 服务健康。
+2. `log_count=(install jq to show count)`：仅表示系统未安装 `jq`，不影响核心功能。
+3. `Conference ... not found`：会议房间未创建（通常是无人在线），不是 API 故障。
+
+若希望冒烟测试中的 bot 注入也返回成功：
+
+1. 先让至少一个终端入会（如拨打 `7111` 进入 `ptt_s1_c1@127.0.0.1`）。
+2. 再执行：`./api_smoke_test_linux.sh http://127.0.0.1:8090`
+3. 预期 `freeswitch_result` 从 `-ERR Conference ... not found` 变为 `+OK` 或等价成功回执。
+
+可选：安装 `jq` 让日志计数显示更直观。
+
+```bash
+# CentOS/RHEL 7/8
+sudo yum install -y jq
+
+# CentOS Stream 9
+sudo dnf install -y jq
+```
+
 ---
 
 ## 8. 切回全量构建
