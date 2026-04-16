@@ -230,6 +230,39 @@ sudo ./scripts/python/ptt_demo/install_systemd_service.sh --user root --group ro
 
 如果日志出现 `status=200/CHDIR`，通常是 `WorkingDirectory` 路径不正确，或服务启用了 `ProtectHome=true` 且工作目录位于 `/root/...`。
 
+建议按以下命令重新安装并重启服务（可直接复制执行）：
+
+```bash
+cd /root/myfreeswitch/scripts/python/ptt_demo
+sudo ./install_systemd_service.sh --user root --group root --workdir /root/myfreeswitch/scripts/python/ptt_demo
+sudo systemctl daemon-reload
+sudo systemctl reset-failed ptt-demo-api.service
+sudo systemctl restart ptt-demo-api.service
+sudo systemctl status ptt-demo-api.service --no-pager -l
+```
+
+若仍异常，继续检查 unit 关键字段：
+
+```bash
+sudo systemctl cat ptt-demo-api.service | grep -E "^(User|Group|WorkingDirectory|ProtectHome)="
+```
+
+期望输出包含：
+
+```text
+User=root
+Group=root
+WorkingDirectory=/root/myfreeswitch/scripts/python/ptt_demo
+ProtectHome=false
+```
+
+最后做一次 API 验收：
+
+```bash
+curl -s http://127.0.0.1:8090/health
+sudo journalctl -u ptt-demo-api.service -n 80 --no-pager
+```
+
 脚本会自动：
 
 1. 安装 unit 到 `/etc/systemd/system/ptt-demo-api.service`
