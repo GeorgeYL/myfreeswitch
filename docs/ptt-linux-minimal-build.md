@@ -31,6 +31,28 @@ sudo apt-get install -y \
   libsndfile1-dev libsqlite3-dev libedit-dev yasm
 ```
 
+centOS 7/8 示例：
+
+```bash
+sudo yum groupinstall -y "Development Tools"
+
+sudo yum install -y \
+  autoconf automake libtool pkgconfig m4 which \
+  gcc gcc-c++ make \
+  openssl-devel libcurl-devel pcre-devel speexdsp-devel \
+  libsndfile-devel sqlite-devel libedit-devel yasm
+```
+CentOS 9
+```bash
+sudo dnf groupinstall -y "Development Tools"
+
+sudo dnf install -y \
+  autoconf automake libtool pkgconf-pkg-config m4 which \
+  gcc gcc-c++ make \
+  openssl-devel libcurl-devel pcre-devel speexdsp-devel \
+  libsndfile-devel sqlite-devel libedit-devel yasm
+```
+
 说明：不同发行版包名略有差异，可按 `./configure` 报错补齐。
 
 ---

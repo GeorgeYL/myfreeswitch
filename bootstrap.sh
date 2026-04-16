@@ -122,7 +122,7 @@ check_lt_ver() {
   # output is multiline from 1.5 onwards
 
   # Require libtool 1.4 or newer
-  libtool=${LIBTOOL:-`${LIBDIR}/apr/build/PrintPath glibtool libtool libtool22 libtool15 libtool14`}
+  libtool=${LIBTOOL:-`sh ${LIBDIR}/apr/build/PrintPath glibtool libtool libtool22 libtool15 libtool14`}
   lt_pversion=`$libtool --version 2>/dev/null|sed -e 's/([^)]*)//g;s/^[^0-9]*//;s/[- ].*//g;q'`
   if test -z "$lt_pversion"; then
     echo "bootstrap: libtool not found."
@@ -161,7 +161,7 @@ check_libtoolize() {
   if [ -n "${LIBTOOL}" ]; then
     libtoolize=${LIBTOOLIZE:-`dirname "${LIBTOOL}"`/libtoolize}
   else
-    libtoolize=${LIBTOOLIZE:-`${LIBDIR}/apr/build/PrintPath glibtoolize libtoolize libtoolize22 libtoolize15 libtoolize14`}
+    libtoolize=${LIBTOOLIZE:-`sh ${LIBDIR}/apr/build/PrintPath glibtoolize libtoolize libtoolize22 libtoolize15 libtoolize14`}
   fi
   if [ "x$libtoolize" = "x" ]; then
     echo "libtoolize not found in path"
@@ -344,7 +344,7 @@ bootstrap_apr() {
 }
 
 bootstrap_libzrtp() {
-  (cd ${LIBDIR}/libzrtp && ./bootstrap.sh)
+  (cd ${LIBDIR}/libzrtp && sh ./bootstrap.sh)
 }
 
 # Libs automake automation function

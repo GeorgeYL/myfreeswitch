@@ -89,7 +89,7 @@ echo "Generating 'make' outputs ..."
 #
 if [ -f xml/expat/buildconf.sh ]; then
   echo "Invoking xml/expat/buildconf.sh ..."
-  (cd xml/expat; ./buildconf.sh)
+  (cd xml/expat; sh ./buildconf.sh)
 fi
 
 # Remove autoconf cache again

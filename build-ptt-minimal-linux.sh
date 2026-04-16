@@ -99,7 +99,13 @@ trap restore_modules_conf EXIT
 cp build/modules.conf.ptt.minimal modules.conf
 
 echo "==> bootstrap"
-./bootstrap.sh -j
+./bootstrap.sh -v
+
+if [[ ! -f "libs/apr-util/configure" ]]; then
+  echo "bootstrap did not generate libs/apr-util/configure" >&2
+  echo "Run '(cd libs/apr-util && ./buildconf --with-apr=../apr)' to see the underlying apr-util autotools error." >&2
+  exit 1
+fi
 
 echo "==> configure"
 # shellcheck disable=SC2086
