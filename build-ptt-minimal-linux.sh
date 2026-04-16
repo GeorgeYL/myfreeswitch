@@ -111,6 +111,12 @@ echo "==> configure"
 # shellcheck disable=SC2086
 ./configure -C --prefix="$PREFIX" $EXTRA_CONFIGURE_ARGS
 
+echo "==> clean stale libvpx generated headers"
+rm -f libs/libvpx/vpx_scale_rtcd.h \
+  libs/libvpx/vpx_dsp_rtcd.h \
+  libs/libvpx/vp8_rtcd.h \
+  libs/libvpx/vp9_rtcd.h
+
 echo "==> make"
 make -j"$JOBS"
 
