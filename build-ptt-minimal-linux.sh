@@ -117,6 +117,14 @@ rm -f libs/libvpx/vpx_scale_rtcd.h \
   libs/libvpx/vp8_rtcd.h \
   libs/libvpx/vp9_rtcd.h
 
+echo "==> clean stale libvpx generated makefiles"
+rm -f libs/libvpx/Makefile \
+  libs/libvpx/config.mk \
+  libs/libvpx/libs-*.mk \
+  libs/libvpx/examples-*.mk \
+  libs/libvpx/docs-*.mk \
+  libs/libvpx/solution-*.mk
+
 echo "==> make"
 make -j"$JOBS"
 
