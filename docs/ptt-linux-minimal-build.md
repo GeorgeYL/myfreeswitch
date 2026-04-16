@@ -173,6 +173,8 @@ sudo dnf install -y espeak-ng
 
 如果两类 TTS 引擎都没安装，脚本会在 `Generating bot audio...` 阶段退出。
 
+Python 版本说明：Demo API 在 Python 3.6 环境会自动安装兼容版 FastAPI/Uvicorn 依赖；Python 3.7+ 会安装新版依赖。
+
 常用参数：
 
 ```bash
