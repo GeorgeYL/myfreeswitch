@@ -28,7 +28,7 @@ sudo apt-get update
 sudo apt-get install -y \
   build-essential autoconf automake libtool pkg-config git \
   libssl-dev libcurl4-openssl-dev libpcre3-dev libspeexdsp-dev \
-  libsndfile1-dev libsqlite3-dev libedit-dev yasm
+  libsndfile1-dev libsqlite3-dev libedit-dev libtiff-dev yasm
 ```
 
 centOS 7/8 示例：
@@ -40,7 +40,7 @@ sudo yum install -y \
   autoconf automake libtool pkgconfig m4 which \
   gcc gcc-c++ make \
   openssl-devel libcurl-devel pcre-devel speexdsp-devel \
-  libsndfile-devel sqlite-devel libedit-devel yasm
+  libsndfile-devel sqlite-devel libedit-devel libtiff-devel yasm
 ```
 CentOS 9
 ```bash
@@ -50,7 +50,7 @@ sudo dnf install -y \
   autoconf automake libtool pkgconf-pkg-config m4 which \
   gcc gcc-c++ make \
   openssl-devel libcurl-devel pcre-devel speexdsp-devel \
-  libsndfile-devel sqlite-devel libedit-devel yasm
+  libsndfile-devel sqlite-devel libedit-devel libtiff-devel yasm
 ```
 
 说明：不同发行版包名略有差异，可按 `./configure` 报错补齐。
