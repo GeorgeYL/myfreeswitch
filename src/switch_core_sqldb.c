@@ -3770,7 +3770,7 @@ SWITCH_DECLARE(void) switch_cache_db_status(switch_stream_handle_t *stream)
 			}
 		}
 		if (i == 3) {
-			strncpy(cleankey_str, dbh->name, strlen(dbh->name));
+			switch_copy_string(cleankey_str, dbh->name, sizeof(cleankey_str));
 		}
 
 		count++;
