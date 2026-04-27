@@ -1,16 +1,11 @@
-# Minimal modules list for PTT demo on Linux
-# Keep this file focused on SIP + conference + ESL + basic media/file support.
+# Minimal modules list for Linux, aligned with Freeswitch.PTT.Minimal.2017.slnf on Windows.
+# mod_audio_fork is appended by build-ptt-minimal-linux.sh when the source directory exists.
 
 applications/mod_commands
 applications/mod_conference
-applications/mod_db
 applications/mod_dptools
-applications/mod_expr
-applications/mod_httapi
 
 codecs/mod_opus
-
-# XML dialplan used by demo routing rules
 
 dialplans/mod_dialplan_xml
 
@@ -19,12 +14,8 @@ endpoints/mod_sofia
 
 event_handlers/mod_event_socket
 
-formats/mod_local_stream
 formats/mod_native_file
 formats/mod_sndfile
-formats/mod_tone_stream
 
 loggers/mod_console
 loggers/mod_logfile
-
-say/mod_say_en

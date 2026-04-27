@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build FreeSWITCH with a minimal module set for the PTT demo (Linux)
+# Build FreeSWITCH with a minimal Linux module set aligned to Freeswitch.PTT.Minimal.2017.slnf
 # Example:
 #   ./build-ptt-minimal-linux.sh
 #   ./build-ptt-minimal-linux.sh --prefix /usr/local/freeswitch --jobs 8
@@ -97,6 +97,7 @@ restore_modules_conf() {
 trap restore_modules_conf EXIT
 
 cp build/modules.conf.ptt.minimal modules.conf
+echo "Loaded Windows-aligned minimal modules list from build/modules.conf.ptt.minimal"
 
 if [[ -d "src/mod/applications/mod_audio_fork" ]]; then
   if ! grep -q '^applications/mod_audio_fork$' modules.conf; then
