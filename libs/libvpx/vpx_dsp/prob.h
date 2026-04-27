@@ -8,8 +8,10 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef VPX_DSP_PROB_H_
-#define VPX_DSP_PROB_H_
+#ifndef VPX_VPX_DSP_PROB_H_
+#define VPX_VPX_DSP_PROB_H_
+
+#include <assert.h>
 
 #include "./vpx_config.h"
 #include "./vpx_dsp_common.h"
@@ -30,7 +32,7 @@ typedef int8_t vpx_tree_index;
 
 #define TREE_SIZE(leaf_count) (2 * (leaf_count)-2)
 
-#define vpx_complement(x) (255 - x)
+#define vpx_complement(x) (255 - (x))
 
 #define MODE_MV_COUNT_SAT 20
 
@@ -43,17 +45,20 @@ typedef int8_t vpx_tree_index;
 
 typedef const vpx_tree_index vpx_tree[];
 
-static INLINE vpx_prob clip_prob(int p) {
-  return (p > 255) ? 255 : (p < 1) ? 1 : p;
-}
-
 static INLINE vpx_prob get_prob(unsigned int num, unsigned int den) {
-  if (den == 0) return 128u;
-  return clip_prob((int)(((int64_t)num * 256 + (den >> 1)) / den));
+  assert(den != 0);
+  {
+    const int p = (int)(((uint64_t)num * 256 + (den >> 1)) / den);
+    // (p > 255) ? 255 : (p < 1) ? 1 : p;
+    const int clipped_prob = p | ((255 - p) >> 23) | (p == 0);
+    return (vpx_prob)clipped_prob;
+  }
 }
 
 static INLINE vpx_prob get_binary_prob(unsigned int n0, unsigned int n1) {
-  return get_prob(n0, n0 + n1);
+  const unsigned int den = n0 + n1;
+  if (den == 0) return 128u;
+  return get_prob(n0, den);
 }
 
 /* This function assumes prob1 and prob2 are already within [1,255] range. */
@@ -98,4 +103,4 @@ DECLARE_ALIGNED(16, extern const uint8_t, vpx_norm[256]);
 }  // extern "C"
 #endif
 
-#endif  // VPX_DSP_PROB_H_
+#endif  // VPX_VPX_DSP_PROB_H_

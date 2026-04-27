@@ -1,6 +1,7 @@
 %module freeswitch
 %include ../../../../swig_common.i
 //%include "cstring.i"
+%include std_string.i
 
 /** 
  * tell swig to treat these variables as mutable so they
@@ -19,7 +20,19 @@
 %}
 
 
+%typemap(in, checkfn="lua_istable") SWIGLUA_TABLE {
+  $1.L = L;
+  $1.idx = $input;
+}
 
+%typemap(typecheck) SWIGLUA_TABLE {
+  $1 = lua_istable(L, $input);
+}
+
+%typemap(out) cJSON * {
+  SWIG_arg += LUA::JSON::cJSON2LuaTable(L, result);
+  cJSON_Delete(result);
+}
 
 /* Lua function typemap */
 %typemap(in, checkfn = "lua_isfunction") SWIGLUA_FN {
@@ -32,7 +45,6 @@
   $1 = default_swiglua_fn;
 }
 
-
 %ignore SwitchToMempool;   
 %newobject EventConsumer::pop;
 %newobject Session;
@@ -43,6 +55,8 @@
 %newobject API::execute;
 %newobject API::executeString;
 %newobject CoreSession::playAndDetectSpeech;
+%newobject JSON;
+%newobject JSON::decode;
 
 %include "typemaps.i"
 %apply int *OUTPUT { int *len };
@@ -105,6 +119,21 @@ class Dbh {
     char *last_error();
     void clear_error();
     int load_extension(const char *extension);
+};
+
+class JSON {
+  private:
+  public:
+    JSON();
+    ~JSON();
+    cJSON *decode(const char *str);
+    std::string encode(SWIGLUA_TABLE lua_table);
+    cJSON *execute(const char *);
+    cJSON *execute(SWIGLUA_TABLE table);
+    std::string execute2(const char *);
+    std::string execute2(SWIGLUA_TABLE table);
+    void encode_empty_table_as_object(bool flag);
+    void return_unformatted_json(bool flag);
 };
 
 }

@@ -130,7 +130,6 @@ static switch_status_t tone_stream_file_open(switch_file_handle_t *handle, const
 	char *tmp;
 	int fd = -1;
 	char buf[1024] = "";
-	size_t len;
 
 	memset(&ts, 0, sizeof(ts));
 
@@ -142,7 +141,7 @@ static switch_status_t tone_stream_file_open(switch_file_handle_t *handle, const
 	if ((tmp = (char *)switch_stristr(";loops=", tonespec))) {
 		*tmp = '\0';
 		tmp += 7;
-		if (tmp) {
+		if (*tmp) {
 			loops = atoi(tmp);
 			switch_buffer_set_loops(audio_buffer, loops);
 		}
@@ -172,11 +171,10 @@ static switch_status_t tone_stream_file_open(switch_file_handle_t *handle, const
 			return SWITCH_STATUS_FALSE;
 		}
 
-		while ((len = switch_fd_read_line(fd, buf, sizeof(buf)))) {
+		while (switch_fd_read_line(fd, buf, sizeof(buf))) {
 			teletone_run(&ts, buf);
 		}
 		close(fd);
-		fd = -1;
 	} else {
 		teletone_run(&ts, tonespec);
 	}

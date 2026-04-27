@@ -264,11 +264,6 @@ void JSMain::Log(const v8::FunctionCallbackInfo<Value>& args)
 	args.GetReturnValue().Set(Undefined(args.GetIsolate()));
 }
 
-void JSMain::Version(const v8::FunctionCallbackInfo<Value>& args)
-{
-	args.GetReturnValue().Set(String::NewFromUtf8(args.GetIsolate(), V8::GetVersion()));
-}
-
 const string JSMain::ExecuteScript(const string& filename, bool *resultIsError)
 {
 	// Get the file and load into a string.
@@ -448,7 +443,7 @@ Isolate *JSMain::GetIsolate()
 #if defined(V8_MAJOR_VERSION) && V8_MAJOR_VERSION >=5
 void JSMain::Initialize(v8::Platform **platform)
 {
-	bool res = V8::InitializeICUDefaultLocation(SWITCH_GLOBAL_dirs.mod_dir);
+	V8::InitializeICUDefaultLocation(SWITCH_GLOBAL_dirs.mod_dir);
 	V8::InitializeExternalStartupData(SWITCH_GLOBAL_dirs.mod_dir);
 
 	*platform = v8::platform::CreateDefaultPlatform();
@@ -553,7 +548,7 @@ int JSMain::GetForcedTerminationLineNumber(void)
 	return forcedTerminationLineNumber;
 }
 
-void JSMain::ExitScript(Isolate *isolate, const char *msg)
+void JSMain::ExitScript(Isolate *isolate, const char *msg, bool jskill)
 {
 	if (!isolate) {
 		return;
@@ -580,7 +575,10 @@ void JSMain::ExitScript(Isolate *isolate, const char *msg)
 			js_strdup(js->forcedTerminationMessage, msg);
 		}
 
-		js->forcedTerminationScriptFile = GetStackInfo(isolate, &js->forcedTerminationLineNumber);
+		/* When forcefully killed, don't call GetStackInfo() because isolate is locked by another thread */
+		if (!jskill) {
+			js->forcedTerminationScriptFile = GetStackInfo(isolate, &js->forcedTerminationLineNumber);
+		}
 	}
 
 	isolate->TerminateExecution();

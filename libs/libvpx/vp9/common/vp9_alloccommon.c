@@ -17,24 +17,6 @@
 #include "vp9/common/vp9_entropymv.h"
 #include "vp9/common/vp9_onyxc_int.h"
 
-// TODO(hkuang): Don't need to lock the whole pool after implementing atomic
-// frame reference count.
-void lock_buffer_pool(BufferPool *const pool) {
-#if CONFIG_MULTITHREAD
-  pthread_mutex_lock(&pool->pool_mutex);
-#else
-  (void)pool;
-#endif
-}
-
-void unlock_buffer_pool(BufferPool *const pool) {
-#if CONFIG_MULTITHREAD
-  pthread_mutex_unlock(&pool->pool_mutex);
-#else
-  (void)pool;
-#endif
-}
-
 void vp9_set_mb_mi(VP9_COMMON *cm, int width, int height) {
   const int aligned_width = ALIGN_POWER_OF_TWO(width, MI_SIZE_LOG2);
   const int aligned_height = ALIGN_POWER_OF_TWO(height, MI_SIZE_LOG2);
@@ -62,8 +44,7 @@ static int alloc_seg_map(VP9_COMMON *cm, int seg_map_size) {
   cm->prev_seg_map_idx = 1;
 
   cm->current_frame_seg_map = cm->seg_map_array[cm->seg_map_idx];
-  if (!cm->frame_parallel_decode)
-    cm->last_frame_seg_map = cm->seg_map_array[cm->prev_seg_map_idx];
+  cm->last_frame_seg_map = cm->seg_map_array[cm->prev_seg_map_idx];
 
   return 0;
 }
@@ -77,20 +58,18 @@ static void free_seg_map(VP9_COMMON *cm) {
   }
 
   cm->current_frame_seg_map = NULL;
-
-  if (!cm->frame_parallel_decode) {
-    cm->last_frame_seg_map = NULL;
-  }
+  cm->last_frame_seg_map = NULL;
 }
 
 void vp9_free_ref_frame_buffers(BufferPool *pool) {
   int i;
 
   for (i = 0; i < FRAME_BUFFERS; ++i) {
-    if (pool->frame_bufs[i].ref_count > 0 &&
+    if (!pool->frame_bufs[i].released &&
         pool->frame_bufs[i].raw_frame_buffer.data != NULL) {
       pool->release_fb_cb(pool->cb_priv, &pool->frame_bufs[i].raw_frame_buffer);
       pool->frame_bufs[i].ref_count = 0;
+      pool->frame_bufs[i].released = 1;
     }
     vpx_free(pool->frame_bufs[i].mvs);
     pool->frame_bufs[i].mvs = NULL;
@@ -144,12 +123,6 @@ int vp9_alloc_context_buffers(VP9_COMMON *cm, int width, int height) {
     if (cm->alloc_mi(cm, new_mi_size)) goto fail;
   }
 
-  if (cm->seg_map_alloc_size < cm->mi_rows * cm->mi_cols) {
-    // Create the segmentation map structure and set to 0.
-    free_seg_map(cm);
-    if (alloc_seg_map(cm, cm->mi_rows * cm->mi_cols)) goto fail;
-  }
-
   if (cm->above_context_alloc_cols < cm->mi_cols) {
     vpx_free(cm->above_context);
     cm->above_context = (ENTROPY_CONTEXT *)vpx_calloc(
@@ -164,6 +137,12 @@ int vp9_alloc_context_buffers(VP9_COMMON *cm, int width, int height) {
     cm->above_context_alloc_cols = cm->mi_cols;
   }
 
+  if (cm->seg_map_alloc_size < cm->mi_rows * cm->mi_cols) {
+    // Create the segmentation map structure and set to 0.
+    free_seg_map(cm);
+    if (alloc_seg_map(cm, cm->mi_rows * cm->mi_cols)) goto fail;
+  }
+
   if (vp9_alloc_loop_filter(cm)) goto fail;
 
   return 0;
@@ -176,6 +155,9 @@ fail:
 }
 
 void vp9_remove_common(VP9_COMMON *cm) {
+#if CONFIG_VP9_POSTPROC
+  vp9_free_postproc_buffers(cm);
+#endif
   vp9_free_context_buffers(cm);
 
   vpx_free(cm->fc);
@@ -186,7 +168,7 @@ void vp9_remove_common(VP9_COMMON *cm) {
 
 void vp9_init_context_buffers(VP9_COMMON *cm) {
   cm->setup_mi(cm);
-  if (cm->last_frame_seg_map && !cm->frame_parallel_decode)
+  if (cm->last_frame_seg_map)
     memset(cm->last_frame_seg_map, 0, cm->mi_rows * cm->mi_cols);
 }
 

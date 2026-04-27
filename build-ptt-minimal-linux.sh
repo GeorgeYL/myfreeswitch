@@ -12,7 +12,6 @@ JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 SKIP_INSTALL=0
 KEEP_MODULES_CONF=0
 EXTRA_CONFIGURE_ARGS=""
-ALLOW_WARNINGS=1
 
 usage() {
   cat <<'EOF'
@@ -23,7 +22,6 @@ Options:
   --jobs <n>               Parallel build jobs (default: CPU cores)
   --skip-install           Build only, do not run make install
   --keep-modules-conf      Keep generated modules.conf after build (no restore)
-  --strict-werror          Keep warnings as errors (disable -Wno-error override)
   --configure-args "..."   Extra args passed to ./configure
   -h, --help               Show this help
 EOF
@@ -45,10 +43,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --keep-modules-conf)
       KEEP_MODULES_CONF=1
-      shift
-      ;;
-    --strict-werror)
-      ALLOW_WARNINGS=0
       shift
       ;;
     --configure-args)
@@ -113,38 +107,12 @@ else
   echo "mod_audio_fork source not found at src/mod/applications/mod_audio_fork; continuing without it"
 fi
 
-if [[ "$ALLOW_WARNINGS" -eq 1 ]]; then
-  # Keep builds moving on older codebases that trigger modern compiler warnings.
-  export CFLAGS="${CFLAGS:-} -Wno-error"
-  export CXXFLAGS="${CXXFLAGS:-} -Wno-error"
-fi
-
 echo "==> bootstrap"
-./bootstrap.sh -v
-
-if [[ ! -f "libs/apr-util/configure" ]]; then
-  echo "bootstrap did not generate libs/apr-util/configure" >&2
-  echo "Run '(cd libs/apr-util && ./buildconf --with-apr=../apr)' to see the underlying apr-util autotools error." >&2
-  exit 1
-fi
+./bootstrap.sh -j
 
 echo "==> configure"
 # shellcheck disable=SC2086
 ./configure -C --prefix="$PREFIX" $EXTRA_CONFIGURE_ARGS
-
-echo "==> clean stale libvpx generated headers"
-rm -f libs/libvpx/vpx_scale_rtcd.h \
-  libs/libvpx/vpx_dsp_rtcd.h \
-  libs/libvpx/vp8_rtcd.h \
-  libs/libvpx/vp9_rtcd.h
-
-echo "==> clean stale libvpx generated makefiles"
-rm -f libs/libvpx/Makefile \
-  libs/libvpx/config.mk \
-  libs/libvpx/libs-*.mk \
-  libs/libvpx/examples-*.mk \
-  libs/libvpx/docs-*.mk \
-  libs/libvpx/solution-*.mk
 
 echo "==> make"
 make -j"$JOBS"

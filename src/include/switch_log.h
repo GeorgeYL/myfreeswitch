@@ -66,10 +66,51 @@ SWITCH_BEGIN_EXTERN_C
 	switch_text_channel_t channel;
 	switch_log_level_t slevel;
 	switch_event_t *tags;
+	/* Log sequence */
+	int64_t sequence;
+	/* Optional extra log metadata */
+	cJSON *meta;
 } switch_log_node_t;
+
+///\{
+/*! \brief JSON Log formatting data item
+ */
+typedef struct {
+	const char *name;
+	const char *value;
+} switch_log_json_format_item_t;
+
+///\{
+/*! \brief JSON Log formatting data
+ */
+typedef struct {
+	switch_log_json_format_item_t version;
+	switch_log_json_format_item_t host;
+	switch_log_json_format_item_t timestamp;
+	switch_log_json_format_item_t level;
+	switch_log_json_format_item_t ident;
+	switch_log_json_format_item_t pid;
+	switch_log_json_format_item_t uuid;
+	switch_log_json_format_item_t file;
+	switch_log_json_format_item_t line;
+	switch_log_json_format_item_t function;
+	switch_log_json_format_item_t full_message;
+	switch_log_json_format_item_t short_message;
+	const char *custom_field_prefix;
+	double timestamp_divisor;
+	switch_log_json_format_item_t sequence;
+} switch_log_json_format_t;
 
 typedef switch_status_t (*switch_log_function_t) (const switch_log_node_t *node, switch_log_level_t level);
 
+/*!
+  \brief Convert a log node to JSON object.  Destroy JSON object when finished.
+  \param node the node
+  \param log_level the log level
+  \param json_format the output format definition
+  \param char_vars optional channel variables to add to logs
+*/
+SWITCH_DECLARE(cJSON *) switch_log_node_to_json(const switch_log_node_t *node, int log_level, switch_log_json_format_t *json_format, switch_event_t *chan_vars);
 
 /*!
   \brief Initilize the logging engine
@@ -118,7 +159,40 @@ SWITCH_DECLARE(void) switch_log_printf(_In_ switch_text_channel_t channel, _In_z
 SWITCH_DECLARE(void) switch_log_vprintf(_In_ switch_text_channel_t channel, _In_z_ const char *file,
 										_In_z_ const char *func, _In_ int line,
 										_In_opt_z_ const char *userdata, _In_ switch_log_level_t level, const char *fmt, va_list ap);
+/*!
+  \brief Write log data to the logging engine w/ optional JSON metadata
+  \param channel the log channel to write to
+  \param file the current file
+  \param func the current function
+  \param line the current line
+  \param userdata ununsed
+  \param level the current log level
+  \param meta log metadata - consumed by this function
+  \param fmt desired format
+  \param ... variable args
+  \note there are channel macros to supply the first 4 parameters (SWITCH_CHANNEL_LOG, SWITCH_CHANNEL_LOG_CLEAN, ...)
+  \see switch_types.h
+*/
+SWITCH_DECLARE(void) switch_log_meta_printf(switch_text_channel_t channel, const char *file, const char *func, int line,
+									   const char *userdata, switch_log_level_t level, cJSON **meta, const char *fmt, ...) PRINTF_FUNCTION(8, 9);
 
+/*!
+  \brief Write log data to the logging engine w/ optional JSON metadata
+  \param channel the log channel to write to
+  \param file the current file
+  \param func the current function
+  \param line the current line
+  \param userdata ununsed
+  \param level the current log level
+  \param meta log metadata - consumed by this function
+  \param fmt desired format
+  \param ap variable args
+  \note there are channel macros to supply the first 4 parameters (SWITCH_CHANNEL_LOG, SWITCH_CHANNEL_LOG_CLEAN, ...)
+  \see switch_types.h
+*/
+SWITCH_DECLARE(void) switch_log_meta_vprintf(_In_ switch_text_channel_t channel, _In_z_ const char *file,
+										_In_z_ const char *func, _In_ int line,
+										_In_opt_z_ const char *userdata, _In_ switch_log_level_t level, cJSON **meta, const char *fmt, va_list ap);
 #endif
 /*!
   \brief Shut down  the logging engine

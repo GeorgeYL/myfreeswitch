@@ -22,6 +22,7 @@
  *
  * Contributor(s):
  * Chris Rienzo <chris.rienzo@grasshopper.com>
+ * Quoc-Bao Nguyen <baonq5@vng.com.vn>
  *
  * common.c - Functions common to the store provider
  *
@@ -63,7 +64,7 @@ static char *my_strrstr(const char *haystack, const char *needle)
 	return NULL;
 }
 
-void parse_url(char *url, const char *base_domain, const char *default_base_domain, char **bucket, char **object)
+SWITCH_MOD_DECLARE(void) parse_url(char *url, const char *base_domain, const char *default_base_domain, char **bucket, char **object)
 {
 	char *bucket_start = NULL;
 	char *bucket_end;
@@ -75,6 +76,7 @@ void parse_url(char *url, const char *base_domain, const char *default_base_doma
 	*object = NULL;
 
 	if (zstr(url)) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "url is empty\n");
 		return;
 	}
 
@@ -86,6 +88,7 @@ void parse_url(char *url, const char *base_domain, const char *default_base_doma
 	}
 
 	if (zstr(bucket_start)) { /* invalid URL */
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "invalid url\n");
 		return;
 	}
 
@@ -96,6 +99,7 @@ void parse_url(char *url, const char *base_domain, const char *default_base_doma
 	bucket_end = my_strrstr(bucket_start, base_domain_match);
 
 	if (!bucket_end) { /* invalid URL */
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "invalid url\n");
 		return;
 	}
 
@@ -104,12 +108,14 @@ void parse_url(char *url, const char *base_domain, const char *default_base_doma
 	object_start = strchr(bucket_end + 1, '/');
 
 	if (!object_start) { /* invalid URL */
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "invalid url\n");
 		return;
 	}
 
 	object_start++;
 
 	if (zstr(bucket_start) || zstr(object_start)) { /* invalid URL */
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "invalid url\n");
 		return;
 	}
 

@@ -34,9 +34,6 @@
 
 #include <switch.h>
 
-#define MSRP_LISTEN_PORT 2855
-#define MSRP_SSL_LISTEN_PORT 2856
-
 enum {
 	MSRP_ST_WAIT_HEADER,
 	MSRP_ST_PARSE_HEADER,
@@ -47,7 +44,7 @@ enum {
 	MSRP_METHOD_REPLY,
 	MSRP_METHOD_SEND,
 	MSRP_METHOD_AUTH,
-	MSRP_METHOD_REPORT,
+	MSRP_METHOD_REPORT
 };
 
 typedef enum {
@@ -118,6 +115,7 @@ struct switch_msrp_session_s{
 	uint8_t frame_data[SWITCH_RTP_MAX_BUF_LEN];
 	int running;
 	void *user_data;
+	switch_queue_t *send_queue;
 };
 
 SWITCH_DECLARE(switch_status_t) switch_msrp_init(void);

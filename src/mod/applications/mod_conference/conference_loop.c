@@ -75,7 +75,7 @@ struct _mapping control_mappings[] = {
 	{"deaf off", conference_loop_deaf_off}
 };
 
-int conference_loop_mapping_len()
+int conference_loop_mapping_len(void)
 {
 	return (sizeof(control_mappings)/sizeof(control_mappings[0]));
 }
@@ -839,6 +839,12 @@ void *SWITCH_THREAD_FUNC conference_loop_input(switch_thread_t *thread, void *ob
 			continue;
 		}
 
+		if (conference_utils_test_flag(member->conference, CFLAG_BREAKABLE) &&
+			switch_channel_test_flag(channel, CF_BREAK)) {
+			switch_channel_clear_flag(channel, CF_BREAK);
+			break;
+		}
+
 		/* Read a frame. */
 		status = switch_core_session_read_frame(session, &read_frame, SWITCH_IO_FLAG_NONE, 0);
 
@@ -939,6 +945,10 @@ void *SWITCH_THREAD_FUNC conference_loop_input(switch_thread_t *thread, void *ob
 			goto do_continue;
 		}
 
+		if (!switch_channel_test_flag(channel, CF_AUDIO)) {
+			goto do_continue;
+		}
+		
 		/* if the member can speak, compute the audio energy level and */
 		/* generate events when the level crosses the threshold        */
 		if (((conference_utils_member_test_flag(member, MFLAG_CAN_SPEAK) && !conference_utils_member_test_flag(member, MFLAG_HOLD)) ||
@@ -1007,12 +1017,12 @@ void *SWITCH_THREAD_FUNC conference_loop_input(switch_thread_t *thread, void *ob
 					} else if (!member->mute_counter && member->score > (int)((double)member->max_energy_level * .75)) {
 						int dec = 1;
 
-						if (member->score_count > 3) {
-							dec = 2;
+						if (member->score_count > 9) {
+							dec = 4;
 						} else if (member->score_count > 6) {
 							dec = 3;
-						} else if (member->score_count > 9) {
-							dec = 4;
+						} else if (member->score_count > 3) {
+							dec = 2;
 						}
 
 						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG2, "MAX ENERGY THRESHOLD! -%d\n", dec);
@@ -1189,7 +1199,7 @@ void *SWITCH_THREAD_FUNC conference_loop_input(switch_thread_t *thread, void *ob
 
 			member->last_score = member->score;
 
-			if (member->id == member->conference->floor_holder) {
+			if ((switch_channel_test_flag(channel, CF_VIDEO) || member->avatar_png_img) && (member->id == member->conference->floor_holder)) {
 				if (member->id != member->conference->video_floor_holder &&
 					(member->floor_packets > member->conference->video_floor_packets || member->energy_level == 0)) {
 					conference_video_set_floor_holder(member->conference, member, SWITCH_FALSE);
@@ -1228,7 +1238,7 @@ void *SWITCH_THREAD_FUNC conference_loop_input(switch_thread_t *thread, void *ob
 
 			if (datalen) {
 				switch_size_t ok = 1;
-
+				
 				/* Write the audio into the input buffer */
 				switch_mutex_lock(member->audio_in_mutex);
 				if (switch_buffer_inuse(member->audio_buffer) > flush_len) {
@@ -1276,15 +1286,19 @@ void conference_loop_launch_input(conference_member_t *member, switch_memory_poo
 {
 	switch_threadattr_t *thd_attr = NULL;
 
-	if (member == NULL || member->input_thread)
-		return;
-
-	switch_threadattr_create(&thd_attr, pool);
-	switch_threadattr_stacksize_set(thd_attr, SWITCH_THREAD_STACKSIZE);
-	conference_utils_member_set_flag_locked(member, MFLAG_ITHREAD);
-	if (switch_thread_create(&member->input_thread, thd_attr, conference_loop_input, member, pool) != SWITCH_STATUS_SUCCESS) {
-		conference_utils_member_clear_flag_locked(member, MFLAG_ITHREAD);
+	switch_mutex_lock(member->flag_mutex);
+	
+	if (member != NULL && !conference_utils_member_test_flag(member, MFLAG_ITHREAD)) {
+		switch_threadattr_create(&thd_attr, pool);
+		switch_threadattr_stacksize_set(thd_attr, SWITCH_THREAD_STACKSIZE);
+		switch_threadattr_priority_set(thd_attr, SWITCH_PRI_REALTIME);
+		conference_utils_member_set_flag_locked(member, MFLAG_ITHREAD);
+		if (switch_thread_create(&member->input_thread, thd_attr, conference_loop_input, member, pool) != SWITCH_STATUS_SUCCESS) {
+			conference_utils_member_clear_flag_locked(member, MFLAG_ITHREAD);
+		}
 	}
+
+	switch_mutex_unlock(member->flag_mutex);
 }
 
 /* marshall frames from the conference (or file or tts output) to the call leg */
@@ -1302,16 +1316,15 @@ void conference_loop_output(conference_member_t *member)
 	uint32_t flush_len;
 	uint32_t low_count, bytes;
 	call_list_t *call_list, *cp;
-	switch_codec_implementation_t read_impl = { 0 }, real_read_impl = { 0 };
+	switch_codec_implementation_t real_read_impl = { 0 };
 	int sanity;
-	switch_status_t st;
 
-	switch_core_session_get_read_impl(member->session, &read_impl);
+	switch_core_session_get_read_impl(member->session, &member->read_impl);
 	switch_core_session_get_real_read_impl(member->session, &real_read_impl);
 
 
 	channel = switch_core_session_get_channel(member->session);
-	interval = read_impl.microseconds_per_packet / 1000;
+	interval = member->read_impl.microseconds_per_packet / 1000;
 	samples = switch_samples_per_packet(member->conference->rate, interval);
 	//csamples = samples;
 	tsamples = real_read_impl.samples_per_packet;
@@ -1444,7 +1457,6 @@ void conference_loop_output(conference_member_t *member)
 	while (!member->loop_loop && conference_utils_member_test_flag(member, MFLAG_RUNNING) && conference_utils_member_test_flag(member, MFLAG_ITHREAD)
 		   && switch_channel_ready(channel)) {
 		switch_event_t *event;
-		int use_timer = 0;
 		switch_buffer_t *use_buffer = NULL;
 		uint32_t mux_used = 0;
 
@@ -1503,8 +1515,6 @@ void conference_loop_output(conference_member_t *member)
 		use_buffer = NULL;
 		mux_used = (uint32_t) switch_buffer_inuse(member->mux_buffer);
 
-		use_timer = 1;
-
 		if (mux_used) {
 			if (mux_used < bytes) {
 				if (++low_count >= 5) {
@@ -1527,28 +1537,26 @@ void conference_loop_output(conference_member_t *member)
 			low_count = 0;
 
 			if ((write_frame.datalen = (uint32_t) switch_buffer_read(use_buffer, write_frame.data, bytes))) {
-				if (write_frame.datalen) {
-					write_frame.samples = write_frame.datalen / 2 / member->conference->channels;
+				write_frame.samples = write_frame.datalen / 2 / member->conference->channels;
 
-					if( !conference_utils_member_test_flag(member, MFLAG_CAN_HEAR)) {
-						memset(write_frame.data, 255, write_frame.datalen);
-					} else if (member->volume_out_level) { /* Check for output volume adjustments */
-						switch_change_sln_volume(write_frame.data, write_frame.samples * member->conference->channels, member->volume_out_level);
-					}
+				if( !conference_utils_member_test_flag(member, MFLAG_CAN_HEAR)) {
+					memset(write_frame.data, 255, write_frame.datalen);
+				} else if (member->volume_out_level) { /* Check for output volume adjustments */
+					switch_change_sln_volume(write_frame.data, write_frame.samples * member->conference->channels, member->volume_out_level);
+				}
 
-					//write_frame.timestamp = timer.samplecount;
+				//write_frame.timestamp = timer.samplecount;
 
-					if (member->fnode) {
-						conference_member_add_file_data(member, write_frame.data, write_frame.datalen);
-					}
+				if (member->fnode) {
+					conference_member_add_file_data(member, write_frame.data, write_frame.datalen);
+				}
 
-					conference_member_check_channels(&write_frame, member, SWITCH_FALSE);
+				conference_member_check_channels(&write_frame, member, SWITCH_FALSE);
 
-					if (switch_core_session_write_frame(member->session, &write_frame, SWITCH_IO_FLAG_NONE, 0) != SWITCH_STATUS_SUCCESS) {
-						switch_mutex_unlock(member->audio_out_mutex);
-						switch_mutex_unlock(member->write_mutex);
-						break;
-					}
+				if (switch_core_session_write_frame(member->session, &write_frame, SWITCH_IO_FLAG_NONE, 0) != SWITCH_STATUS_SUCCESS) {
+					switch_mutex_unlock(member->audio_out_mutex);
+					switch_mutex_unlock(member->write_mutex);
+					break;
 				}
 			}
 
@@ -1641,11 +1649,7 @@ void conference_loop_output(conference_member_t *member)
 			switch_ivr_parse_all_messages(member->session);
 		}
 
-		if (use_timer) {
-			switch_core_timer_next(&timer);
-		} else {
-			switch_cond_next();
-		}
+		switch_core_timer_next(&timer);
 
 	} /* Rinse ... Repeat */
 
@@ -1653,12 +1657,6 @@ void conference_loop_output(conference_member_t *member)
 
 	if (!member->loop_loop) {
 		conference_utils_member_clear_flag_locked(member, MFLAG_RUNNING);
-
-		/* Wait for the input thread to end */
-		if (member->input_thread) {
-			switch_thread_join(&st, member->input_thread);
-			member->input_thread = NULL;
-		}
 	}
 
 	switch_core_timer_destroy(&timer);

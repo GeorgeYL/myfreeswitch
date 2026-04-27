@@ -132,6 +132,7 @@
 	<action application="log" data="CRIT Open $${conf_dir}/vars.xml and change the default_password."/>
 	<action application="log" data="CRIT Once changed type 'reloadxml' at the console."/>
 	<action application="log" data="CRIT WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING "/>
+	<action application="sleep" data="10000"/>
       </condition>
       <!--
 	  This is an example of how to auto detect if telephone-event is missing and activate inband detection
@@ -161,6 +162,9 @@
 
 
       <condition>
+	<action application="hash" data="insert/${domain_name}-spymap/${caller_id_number}/${uuid}"/>
+	<action application="hash" data="insert/${domain_name}-last_dial/${caller_id_number}/${destination_number}"/>
+	<action application="hash" data="insert/${domain_name}-last_dial/global/${uuid}"/>
 	<action application="export" data="RFC2822_DATE=${strftime(%a, %d %b %Y %T %z)}"/>
       </condition>
     </extension>
@@ -272,11 +276,18 @@
 	<!-- <action application="set" data="sip_exclude_contact=${network_addr}"/> -->
 	<action application="set" data="hangup_after_bridge=true"/>
 	<!--<action application="set" data="continue_on_fail=NORMAL_TEMPORARY_FAILURE,USER_BUSY,NO_ANSWER,TIMEOUT,NO_ROUTE_DESTINATION"/> -->
-      <action application="set" data="continue_on_fail=false"/>
+	<action application="set" data="continue_on_fail=true"/>
+	<action application="hash" data="insert/${domain_name}-call_return/${dialed_extension}/${caller_id_number}"/>
+	<action application="hash" data="insert/${domain_name}-last_dial_ext/${dialed_extension}/${uuid}"/>
 	<action application="set" data="called_party_callgroup=${user_data(${dialed_extension}@${domain_name} var callgroup)}"/>
+	<action application="hash" data="insert/${domain_name}-last_dial_ext/${called_party_callgroup}/${uuid}"/>
+	<action application="hash" data="insert/${domain_name}-last_dial_ext/global/${uuid}"/>
 	<!--<action application="export" data="nolocal:rtp_secure_media=${user_data(${dialed_extension}@${domain_name} var rtp_secure_media)}"/>-->
+	<action application="hash" data="insert/${domain_name}-last_dial/${called_party_callgroup}/${uuid}"/>
 	<action application="bridge" data="user/${dialed_extension}@${domain_name}"/>
-      <action application="hangup" data="NORMAL_CLEARING"/>
+	<action application="answer"/>
+	<action application="sleep" data="1000"/>
+	<action application="bridge" data="loopback/app=voicemail:default ${domain_name} ${dialed_extension}"/>
       </condition>
     </extension>
 
@@ -431,10 +442,6 @@
 	<!--
 	     This will take the SAS from the b-leg and send it to the display on the a-leg phone.
 	     Known working with Polycom and Snom maybe others.
-	-->
-	<!--
-	<action application="set" data="exec_after_bridge_app=${sched_api(+4 zrtp expand uuid_display ${uuid} \${uuid_getvar(\${uuid_getvar(${uuid} signal_bond)} zrtp_sas1_string )}  \${uuid_getvar(\${uuid_getvar(${uuid} signal_bond)} zrtp_sas2_string )} )}"/>
-	<action application="export" data="nolocal:zrtp_secure_media=true"/>
 	-->
 	<action application="bridge" data="sofia/${use_profile}/$1@conference.freeswitch.org"/>
       </condition>
@@ -757,13 +764,6 @@
       </condition>
     </extension>
 
-    <!-- install zrtp_agent.lua into scripts (ZRTP == 9787) -->
-    <extension name="zrtp_enrollement">
-      <condition field="destination_number" expression="^9787$">
-	<action application="lua" data="zrtp_agent.lua"/>
-      </condition>
-    </extension>
-
     <!--
 	You will no longer hear the bong tone.  The wav file is playing stating the call is secure.
 	The file will not play unless you have both TLS and SRTP active.
@@ -775,10 +775,8 @@
 	<action application="answer"/>
 	<action application="execute_extension" data="is_secure XML features"/>
 	<action application="playback" data="$${hold_music}"/>
-	<anti-action application="set" data="zrtp_secure_media=true"/>
 	<anti-action application="answer"/>
 	<anti-action application="playback" data="silence_stream://2000"/>
-	<anti-action application="execute_extension" data="is_zrtp_secure XML features"/>
 	<anti-action application="playback" data="$${hold_music}"/>
       </condition>
     </extension>

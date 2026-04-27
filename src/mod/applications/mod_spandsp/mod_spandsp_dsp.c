@@ -406,7 +406,12 @@ static switch_bool_t inband_dtmf_callback(switch_media_bug_t *bug, void *user_da
 	switch (type) {
 	case SWITCH_ABC_TYPE_INIT: {
 		pvt->dtmf_detect = dtmf_rx_init(NULL, NULL, NULL);
-		span_log_set_message_handler(dtmf_rx_get_logging_state(pvt->dtmf_detect), mod_spandsp_log_message, pvt->session);
+		{
+			mod_spandsp_log_data_t *log_data = switch_core_session_alloc(pvt->session, sizeof(*log_data));
+			log_data->session = pvt->session;
+			log_data->verbose_log_level = spandsp_globals.verbose_log_level;
+			span_log_set_message_handler(dtmf_rx_get_logging_state(pvt->dtmf_detect), mod_spandsp_log_message, log_data);
+		}
 		if (pvt->verbose) {
 			span_log_set_level(dtmf_rx_get_logging_state(pvt->dtmf_detect), SPAN_LOG_SHOW_SEVERITY | SPAN_LOG_SHOW_PROTOCOL | SPAN_LOG_FLOW);
 		}
@@ -464,7 +469,6 @@ static switch_bool_t inband_dtmf_callback(switch_media_bug_t *bug, void *user_da
 				switch_resample_process(pvt->resampler, dp, (int) datalen / 2 / 1);
 				memcpy(dp, pvt->resampler->to, pvt->resampler->to_len * 2 * 1);
 				samples = pvt->resampler->to_len;
-				datalen = pvt->resampler->to_len * 2 * 1;
 			}
 
 			dtmf_rx(pvt->dtmf_detect, dp, samples);
@@ -639,6 +643,20 @@ switch_status_t tone_descriptor_create(tone_descriptor_t **descriptor, const cha
 }
 
 /**
+ * Destroy the tone descriptor
+ *
+ * @param descriptor the descriptor to create
+ * @return void
+ */
+void tone_descriptor_destroy(tone_descriptor_t *descriptor)
+{
+	if (descriptor->spandsp_tone_descriptor) {
+		super_tone_rx_free_descriptor(descriptor->spandsp_tone_descriptor);
+		descriptor->spandsp_tone_descriptor = NULL;
+	}
+}
+
+/**
  * Add a tone to the tone descriptor
  *
  * @param descriptor the tone descriptor
@@ -713,6 +731,48 @@ static void tone_segment_callback(void *user_data, int f1, int f2, int duration)
 }
 
 /**
+ * Duplicate the tone descriptor
+ *
+ * @param descriptor the descriptor to use
+ * @param memory_pool the pool to use
+ * @return pointer to a copy of descriptor
+ */
+static tone_descriptor_t *tone_descriptor_dup(tone_descriptor_t *descriptor, switch_memory_pool_t *pool)
+{
+	tone_descriptor_t *desc = NULL;
+	int t = 0, s = 0, tone_count = 0;
+
+	if (descriptor && pool) {
+		if (tone_descriptor_create(&desc, descriptor->name, pool) != SWITCH_STATUS_SUCCESS) {
+			return NULL;
+		}
+
+		tone_count = descriptor->idx + 1;
+
+		for (t = 0; t < tone_count; t++) {
+			int tone_id = tone_descriptor_add_tone(desc, descriptor->tone_keys[t]);
+			if (-1 != tone_id) {
+				int step = descriptor->spandsp_tone_descriptor->tone_segs[tone_id];
+				for (s = 0; s < step; s++) {
+					super_tone_rx_segment_t segment = descriptor->spandsp_tone_descriptor->tone_list[tone_id][s];
+					int f1 = (segment.f1 == -1 ? 0 : descriptor->spandsp_tone_descriptor->pitches[segment.f1][0]);
+					int f2 = (segment.f2 == -1 ? 0 : descriptor->spandsp_tone_descriptor->pitches[segment.f2][0]);
+					int min = segment.min_duration / 8;
+					int max = (segment.max_duration == 0x7FFFFFFF ? 0 : segment.max_duration / 8);
+					tone_descriptor_add_tone_element(desc, tone_id, f1, f2, min, max);
+				}
+			} else {
+				tone_descriptor_destroy(desc);
+				desc = NULL;
+				break;
+			}
+		}
+	}
+
+	return desc;
+}
+
+/**
  * Allocate the tone detector
  *
  * @param session the session that owns the detector
@@ -724,11 +784,8 @@ static void tone_segment_callback(void *user_data, int f1, int f2, int duration)
 static switch_status_t tone_detector_create(switch_core_session_t *session, tone_detector_t **detector, tone_descriptor_t *descriptor)
 {
 	tone_detector_t *ldetector = switch_core_session_alloc(session, sizeof(tone_detector_t));
-	tone_descriptor_t *desc = switch_core_session_alloc(session, sizeof(tone_descriptor_t));
 
-	memcpy(desc, descriptor, sizeof(tone_descriptor_t));
-
-	ldetector->descriptor = desc;
+	ldetector->descriptor = tone_descriptor_dup(descriptor, switch_core_session_get_pool(session));
 	ldetector->debug = spandsp_globals.tonedebug;
 	ldetector->session = session;
 	*detector = ldetector;
@@ -777,6 +834,10 @@ static void tone_detector_destroy(tone_detector_t *detector)
 			super_tone_rx_release(detector->spandsp_detector);
 			super_tone_rx_free(detector->spandsp_detector);
 			detector->spandsp_detector = NULL;
+		}
+		if (detector->descriptor) {
+			tone_descriptor_destroy(detector->descriptor);
+			detector->descriptor = NULL;
 		}
 	}
 }

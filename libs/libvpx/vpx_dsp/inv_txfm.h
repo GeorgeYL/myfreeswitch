@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef VPX_DSP_INV_TXFM_H_
-#define VPX_DSP_INV_TXFM_H_
+#ifndef VPX_VPX_DSP_INV_TXFM_H_
+#define VPX_VPX_DSP_INV_TXFM_H_
 
 #include <assert.h>
 
@@ -57,11 +57,6 @@ static INLINE tran_high_t highbd_check_range(tran_high_t input, int bd) {
   (void)bd;
   return input;
 }
-
-static INLINE tran_high_t highbd_dct_const_round_shift(tran_high_t input) {
-  tran_high_t rv = ROUND_POWER_OF_TWO(input, DCT_CONST_BITS);
-  return (tran_high_t)rv;
-}
 #endif  // CONFIG_VP9_HIGHBITDEPTH
 
 #if CONFIG_EMULATE_HARDWARE
@@ -81,7 +76,6 @@ static INLINE tran_high_t highbd_dct_const_round_shift(tran_high_t input) {
 // bd of 10 uses trans_low with 18bits, need to remove 14bits
 // bd of 12 uses trans_low with 20bits, need to remove 12bits
 // bd of x uses trans_low with 8+x bits, need to remove 24-x bits
-
 #define WRAPLOW(x) ((((int32_t)check_range(x)) << 16) >> 16)
 #if CONFIG_VP9_HIGHBITDEPTH
 #define HIGHBD_WRAPLOW(x, bd) \
@@ -128,4 +122,4 @@ static INLINE uint8_t clip_pixel_add(uint8_t dest, tran_high_t trans) {
 }  // extern "C"
 #endif
 
-#endif  // VPX_DSP_INV_TXFM_H_
+#endif  // VPX_VPX_DSP_INV_TXFM_H_

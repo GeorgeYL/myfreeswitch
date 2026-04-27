@@ -8,6 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <assert.h>
 #include "./vpx_dsp_rtcd.h"
 #include "vpx_dsp/fwd_txfm.h"
 
@@ -21,36 +22,37 @@ void vpx_fdct4x4_c(const int16_t *input, tran_low_t *output, int stride) {
   int pass;
   // We need an intermediate buffer between passes.
   tran_low_t intermediate[4 * 4];
-  const int16_t *in_pass0 = input;
-  const tran_low_t *in = NULL;
+  const tran_low_t *in_low = NULL;
   tran_low_t *out = intermediate;
   // Do the two transform/transpose passes
   for (pass = 0; pass < 2; ++pass) {
-    tran_high_t input[4];      // canbe16
+    tran_high_t in_high[4];    // canbe16
     tran_high_t step[4];       // canbe16
     tran_high_t temp1, temp2;  // needs32
     int i;
     for (i = 0; i < 4; ++i) {
       // Load inputs.
-      if (0 == pass) {
-        input[0] = in_pass0[0 * stride] * 16;
-        input[1] = in_pass0[1 * stride] * 16;
-        input[2] = in_pass0[2 * stride] * 16;
-        input[3] = in_pass0[3 * stride] * 16;
-        if (i == 0 && input[0]) {
-          input[0] += 1;
+      if (pass == 0) {
+        in_high[0] = input[0 * stride] * 16;
+        in_high[1] = input[1 * stride] * 16;
+        in_high[2] = input[2 * stride] * 16;
+        in_high[3] = input[3 * stride] * 16;
+        if (i == 0 && in_high[0]) {
+          ++in_high[0];
         }
       } else {
-        input[0] = in[0 * 4];
-        input[1] = in[1 * 4];
-        input[2] = in[2 * 4];
-        input[3] = in[3 * 4];
+        assert(in_low != NULL);
+        in_high[0] = in_low[0 * 4];
+        in_high[1] = in_low[1 * 4];
+        in_high[2] = in_low[2 * 4];
+        in_high[3] = in_low[3 * 4];
+        ++in_low;
       }
       // Transform.
-      step[0] = input[0] + input[3];
-      step[1] = input[1] + input[2];
-      step[2] = input[1] - input[2];
-      step[3] = input[0] - input[3];
+      step[0] = in_high[0] + in_high[3];
+      step[1] = in_high[1] + in_high[2];
+      step[2] = in_high[1] - in_high[2];
+      step[3] = in_high[0] - in_high[3];
       temp1 = (step[0] + step[1]) * cospi_16_64;
       temp2 = (step[0] - step[1]) * cospi_16_64;
       out[0] = (tran_low_t)fdct_round_shift(temp1);
@@ -60,12 +62,11 @@ void vpx_fdct4x4_c(const int16_t *input, tran_low_t *output, int stride) {
       out[1] = (tran_low_t)fdct_round_shift(temp1);
       out[3] = (tran_low_t)fdct_round_shift(temp2);
       // Do next column (which is a transposed row in second/horizontal pass)
-      in_pass0++;
-      in++;
+      ++input;
       out += 4;
     }
     // Setup in/out for next pass.
-    in = intermediate;
+    in_low = intermediate;
     out = output;
   }
 
@@ -83,14 +84,14 @@ void vpx_fdct4x4_1_c(const int16_t *input, tran_low_t *output, int stride) {
   for (r = 0; r < 4; ++r)
     for (c = 0; c < 4; ++c) sum += input[r * stride + c];
 
-  output[0] = sum << 1;
+  output[0] = sum * 2;
 }
 
-void vpx_fdct8x8_c(const int16_t *input, tran_low_t *final_output, int stride) {
+void vpx_fdct8x8_c(const int16_t *input, tran_low_t *output, int stride) {
   int i, j;
   tran_low_t intermediate[64];
   int pass;
-  tran_low_t *output = intermediate;
+  tran_low_t *out = intermediate;
   const tran_low_t *in = NULL;
 
   // Transform columns
@@ -99,7 +100,6 @@ void vpx_fdct8x8_c(const int16_t *input, tran_low_t *final_output, int stride) {
     tran_high_t t0, t1, t2, t3;                  // needs32
     tran_high_t x0, x1, x2, x3;                  // canbe16
 
-    int i;
     for (i = 0; i < 8; i++) {
       // stage 1
       if (pass == 0) {
@@ -133,10 +133,10 @@ void vpx_fdct8x8_c(const int16_t *input, tran_low_t *final_output, int stride) {
       t1 = (x0 - x1) * cospi_16_64;
       t2 = x2 * cospi_24_64 + x3 * cospi_8_64;
       t3 = -x2 * cospi_8_64 + x3 * cospi_24_64;
-      output[0] = (tran_low_t)fdct_round_shift(t0);
-      output[2] = (tran_low_t)fdct_round_shift(t2);
-      output[4] = (tran_low_t)fdct_round_shift(t1);
-      output[6] = (tran_low_t)fdct_round_shift(t3);
+      out[0] = (tran_low_t)fdct_round_shift(t0);
+      out[2] = (tran_low_t)fdct_round_shift(t2);
+      out[4] = (tran_low_t)fdct_round_shift(t1);
+      out[6] = (tran_low_t)fdct_round_shift(t3);
 
       // Stage 2
       t0 = (s6 - s5) * cospi_16_64;
@@ -155,19 +155,19 @@ void vpx_fdct8x8_c(const int16_t *input, tran_low_t *final_output, int stride) {
       t1 = x1 * cospi_12_64 + x2 * cospi_20_64;
       t2 = x2 * cospi_12_64 + x1 * -cospi_20_64;
       t3 = x3 * cospi_28_64 + x0 * -cospi_4_64;
-      output[1] = (tran_low_t)fdct_round_shift(t0);
-      output[3] = (tran_low_t)fdct_round_shift(t2);
-      output[5] = (tran_low_t)fdct_round_shift(t1);
-      output[7] = (tran_low_t)fdct_round_shift(t3);
-      output += 8;
+      out[1] = (tran_low_t)fdct_round_shift(t0);
+      out[3] = (tran_low_t)fdct_round_shift(t2);
+      out[5] = (tran_low_t)fdct_round_shift(t1);
+      out[7] = (tran_low_t)fdct_round_shift(t3);
+      out += 8;
     }
     in = intermediate;
-    output = final_output;
+    out = output;
   }
 
   // Rows
   for (i = 0; i < 8; ++i) {
-    for (j = 0; j < 8; ++j) final_output[j + i * 8] /= 2;
+    for (j = 0; j < 8; ++j) output[j + i * 8] /= 2;
   }
 }
 
@@ -190,56 +190,57 @@ void vpx_fdct16x16_c(const int16_t *input, tran_low_t *output, int stride) {
   int pass;
   // We need an intermediate buffer between passes.
   tran_low_t intermediate[256];
-  const int16_t *in_pass0 = input;
-  const tran_low_t *in = NULL;
+  const tran_low_t *in_low = NULL;
   tran_low_t *out = intermediate;
   // Do the two transform/transpose passes
   for (pass = 0; pass < 2; ++pass) {
     tran_high_t step1[8];      // canbe16
     tran_high_t step2[8];      // canbe16
     tran_high_t step3[8];      // canbe16
-    tran_high_t input[8];      // canbe16
+    tran_high_t in_high[8];    // canbe16
     tran_high_t temp1, temp2;  // needs32
     int i;
     for (i = 0; i < 16; i++) {
       if (0 == pass) {
         // Calculate input for the first 8 results.
-        input[0] = (in_pass0[0 * stride] + in_pass0[15 * stride]) * 4;
-        input[1] = (in_pass0[1 * stride] + in_pass0[14 * stride]) * 4;
-        input[2] = (in_pass0[2 * stride] + in_pass0[13 * stride]) * 4;
-        input[3] = (in_pass0[3 * stride] + in_pass0[12 * stride]) * 4;
-        input[4] = (in_pass0[4 * stride] + in_pass0[11 * stride]) * 4;
-        input[5] = (in_pass0[5 * stride] + in_pass0[10 * stride]) * 4;
-        input[6] = (in_pass0[6 * stride] + in_pass0[9 * stride]) * 4;
-        input[7] = (in_pass0[7 * stride] + in_pass0[8 * stride]) * 4;
+        in_high[0] = (input[0 * stride] + input[15 * stride]) * 4;
+        in_high[1] = (input[1 * stride] + input[14 * stride]) * 4;
+        in_high[2] = (input[2 * stride] + input[13 * stride]) * 4;
+        in_high[3] = (input[3 * stride] + input[12 * stride]) * 4;
+        in_high[4] = (input[4 * stride] + input[11 * stride]) * 4;
+        in_high[5] = (input[5 * stride] + input[10 * stride]) * 4;
+        in_high[6] = (input[6 * stride] + input[9 * stride]) * 4;
+        in_high[7] = (input[7 * stride] + input[8 * stride]) * 4;
         // Calculate input for the next 8 results.
-        step1[0] = (in_pass0[7 * stride] - in_pass0[8 * stride]) * 4;
-        step1[1] = (in_pass0[6 * stride] - in_pass0[9 * stride]) * 4;
-        step1[2] = (in_pass0[5 * stride] - in_pass0[10 * stride]) * 4;
-        step1[3] = (in_pass0[4 * stride] - in_pass0[11 * stride]) * 4;
-        step1[4] = (in_pass0[3 * stride] - in_pass0[12 * stride]) * 4;
-        step1[5] = (in_pass0[2 * stride] - in_pass0[13 * stride]) * 4;
-        step1[6] = (in_pass0[1 * stride] - in_pass0[14 * stride]) * 4;
-        step1[7] = (in_pass0[0 * stride] - in_pass0[15 * stride]) * 4;
+        step1[0] = (input[7 * stride] - input[8 * stride]) * 4;
+        step1[1] = (input[6 * stride] - input[9 * stride]) * 4;
+        step1[2] = (input[5 * stride] - input[10 * stride]) * 4;
+        step1[3] = (input[4 * stride] - input[11 * stride]) * 4;
+        step1[4] = (input[3 * stride] - input[12 * stride]) * 4;
+        step1[5] = (input[2 * stride] - input[13 * stride]) * 4;
+        step1[6] = (input[1 * stride] - input[14 * stride]) * 4;
+        step1[7] = (input[0 * stride] - input[15 * stride]) * 4;
       } else {
         // Calculate input for the first 8 results.
-        input[0] = ((in[0 * 16] + 1) >> 2) + ((in[15 * 16] + 1) >> 2);
-        input[1] = ((in[1 * 16] + 1) >> 2) + ((in[14 * 16] + 1) >> 2);
-        input[2] = ((in[2 * 16] + 1) >> 2) + ((in[13 * 16] + 1) >> 2);
-        input[3] = ((in[3 * 16] + 1) >> 2) + ((in[12 * 16] + 1) >> 2);
-        input[4] = ((in[4 * 16] + 1) >> 2) + ((in[11 * 16] + 1) >> 2);
-        input[5] = ((in[5 * 16] + 1) >> 2) + ((in[10 * 16] + 1) >> 2);
-        input[6] = ((in[6 * 16] + 1) >> 2) + ((in[9 * 16] + 1) >> 2);
-        input[7] = ((in[7 * 16] + 1) >> 2) + ((in[8 * 16] + 1) >> 2);
+        assert(in_low != NULL);
+        in_high[0] = ((in_low[0 * 16] + 1) >> 2) + ((in_low[15 * 16] + 1) >> 2);
+        in_high[1] = ((in_low[1 * 16] + 1) >> 2) + ((in_low[14 * 16] + 1) >> 2);
+        in_high[2] = ((in_low[2 * 16] + 1) >> 2) + ((in_low[13 * 16] + 1) >> 2);
+        in_high[3] = ((in_low[3 * 16] + 1) >> 2) + ((in_low[12 * 16] + 1) >> 2);
+        in_high[4] = ((in_low[4 * 16] + 1) >> 2) + ((in_low[11 * 16] + 1) >> 2);
+        in_high[5] = ((in_low[5 * 16] + 1) >> 2) + ((in_low[10 * 16] + 1) >> 2);
+        in_high[6] = ((in_low[6 * 16] + 1) >> 2) + ((in_low[9 * 16] + 1) >> 2);
+        in_high[7] = ((in_low[7 * 16] + 1) >> 2) + ((in_low[8 * 16] + 1) >> 2);
         // Calculate input for the next 8 results.
-        step1[0] = ((in[7 * 16] + 1) >> 2) - ((in[8 * 16] + 1) >> 2);
-        step1[1] = ((in[6 * 16] + 1) >> 2) - ((in[9 * 16] + 1) >> 2);
-        step1[2] = ((in[5 * 16] + 1) >> 2) - ((in[10 * 16] + 1) >> 2);
-        step1[3] = ((in[4 * 16] + 1) >> 2) - ((in[11 * 16] + 1) >> 2);
-        step1[4] = ((in[3 * 16] + 1) >> 2) - ((in[12 * 16] + 1) >> 2);
-        step1[5] = ((in[2 * 16] + 1) >> 2) - ((in[13 * 16] + 1) >> 2);
-        step1[6] = ((in[1 * 16] + 1) >> 2) - ((in[14 * 16] + 1) >> 2);
-        step1[7] = ((in[0 * 16] + 1) >> 2) - ((in[15 * 16] + 1) >> 2);
+        step1[0] = ((in_low[7 * 16] + 1) >> 2) - ((in_low[8 * 16] + 1) >> 2);
+        step1[1] = ((in_low[6 * 16] + 1) >> 2) - ((in_low[9 * 16] + 1) >> 2);
+        step1[2] = ((in_low[5 * 16] + 1) >> 2) - ((in_low[10 * 16] + 1) >> 2);
+        step1[3] = ((in_low[4 * 16] + 1) >> 2) - ((in_low[11 * 16] + 1) >> 2);
+        step1[4] = ((in_low[3 * 16] + 1) >> 2) - ((in_low[12 * 16] + 1) >> 2);
+        step1[5] = ((in_low[2 * 16] + 1) >> 2) - ((in_low[13 * 16] + 1) >> 2);
+        step1[6] = ((in_low[1 * 16] + 1) >> 2) - ((in_low[14 * 16] + 1) >> 2);
+        step1[7] = ((in_low[0 * 16] + 1) >> 2) - ((in_low[15 * 16] + 1) >> 2);
+        in_low++;
       }
       // Work on the first eight values; fdct8(input, even_results);
       {
@@ -248,14 +249,14 @@ void vpx_fdct16x16_c(const int16_t *input, tran_low_t *output, int stride) {
         tran_high_t x0, x1, x2, x3;                  // canbe16
 
         // stage 1
-        s0 = input[0] + input[7];
-        s1 = input[1] + input[6];
-        s2 = input[2] + input[5];
-        s3 = input[3] + input[4];
-        s4 = input[3] - input[4];
-        s5 = input[2] - input[5];
-        s6 = input[1] - input[6];
-        s7 = input[0] - input[7];
+        s0 = in_high[0] + in_high[7];
+        s1 = in_high[1] + in_high[6];
+        s2 = in_high[2] + in_high[5];
+        s3 = in_high[3] + in_high[4];
+        s4 = in_high[3] - in_high[4];
+        s5 = in_high[2] - in_high[5];
+        s6 = in_high[1] - in_high[6];
+        s7 = in_high[0] - in_high[7];
 
         // fdct4(step, step);
         x0 = s0 + s3;
@@ -350,12 +351,11 @@ void vpx_fdct16x16_c(const int16_t *input, tran_low_t *output, int stride) {
         out[15] = (tran_low_t)fdct_round_shift(temp2);
       }
       // Do next column (which is a transposed row in second/horizontal pass)
-      in++;
-      in_pass0++;
+      input++;
       out += 16;
     }
     // Setup in/out for next pass.
-    in = intermediate;
+    in_low = intermediate;
     out = output;
   }
 }
@@ -705,9 +705,9 @@ void vpx_fdct32(const tran_high_t *input, tran_high_t *output, int round) {
   output[31] = dct_32_round(step[31] * cospi_31_64 + step[16] * -cospi_1_64);
 }
 
-void vpx_fdct32x32_c(const int16_t *input, tran_low_t *out, int stride) {
+void vpx_fdct32x32_c(const int16_t *input, tran_low_t *output, int stride) {
   int i, j;
-  tran_high_t output[32 * 32];
+  tran_high_t out[32 * 32];
 
   // Columns
   for (i = 0; i < 32; ++i) {
@@ -715,16 +715,16 @@ void vpx_fdct32x32_c(const int16_t *input, tran_low_t *out, int stride) {
     for (j = 0; j < 32; ++j) temp_in[j] = input[j * stride + i] * 4;
     vpx_fdct32(temp_in, temp_out, 0);
     for (j = 0; j < 32; ++j)
-      output[j * 32 + i] = (temp_out[j] + 1 + (temp_out[j] > 0)) >> 2;
+      out[j * 32 + i] = (temp_out[j] + 1 + (temp_out[j] > 0)) >> 2;
   }
 
   // Rows
   for (i = 0; i < 32; ++i) {
     tran_high_t temp_in[32], temp_out[32];
-    for (j = 0; j < 32; ++j) temp_in[j] = output[j + i * 32];
+    for (j = 0; j < 32; ++j) temp_in[j] = out[j + i * 32];
     vpx_fdct32(temp_in, temp_out, 0);
     for (j = 0; j < 32; ++j)
-      out[j + i * 32] =
+      output[j + i * 32] =
           (tran_low_t)((temp_out[j] + 1 + (temp_out[j] < 0)) >> 2);
   }
 }
@@ -732,9 +732,9 @@ void vpx_fdct32x32_c(const int16_t *input, tran_low_t *out, int stride) {
 // Note that although we use dct_32_round in dct32 computation flow,
 // this 2d fdct32x32 for rate-distortion optimization loop is operating
 // within 16 bits precision.
-void vpx_fdct32x32_rd_c(const int16_t *input, tran_low_t *out, int stride) {
+void vpx_fdct32x32_rd_c(const int16_t *input, tran_low_t *output, int stride) {
   int i, j;
-  tran_high_t output[32 * 32];
+  tran_high_t out[32 * 32];
 
   // Columns
   for (i = 0; i < 32; ++i) {
@@ -745,15 +745,15 @@ void vpx_fdct32x32_rd_c(const int16_t *input, tran_low_t *out, int stride) {
       // TODO(cd): see quality impact of only doing
       //           output[j * 32 + i] = (temp_out[j] + 1) >> 2;
       //           PS: also change code in vpx_dsp/x86/vpx_dct_sse2.c
-      output[j * 32 + i] = (temp_out[j] + 1 + (temp_out[j] > 0)) >> 2;
+      out[j * 32 + i] = (temp_out[j] + 1 + (temp_out[j] > 0)) >> 2;
   }
 
   // Rows
   for (i = 0; i < 32; ++i) {
     tran_high_t temp_in[32], temp_out[32];
-    for (j = 0; j < 32; ++j) temp_in[j] = output[j + i * 32];
+    for (j = 0; j < 32; ++j) temp_in[j] = out[j + i * 32];
     vpx_fdct32(temp_in, temp_out, 1);
-    for (j = 0; j < 32; ++j) out[j + i * 32] = (tran_low_t)temp_out[j];
+    for (j = 0; j < 32; ++j) output[j + i * 32] = (tran_low_t)temp_out[j];
   }
 }
 
@@ -772,14 +772,14 @@ void vpx_highbd_fdct4x4_c(const int16_t *input, tran_low_t *output,
   vpx_fdct4x4_c(input, output, stride);
 }
 
-void vpx_highbd_fdct8x8_c(const int16_t *input, tran_low_t *final_output,
+void vpx_highbd_fdct8x8_c(const int16_t *input, tran_low_t *output,
                           int stride) {
-  vpx_fdct8x8_c(input, final_output, stride);
+  vpx_fdct8x8_c(input, output, stride);
 }
 
-void vpx_highbd_fdct8x8_1_c(const int16_t *input, tran_low_t *final_output,
+void vpx_highbd_fdct8x8_1_c(const int16_t *input, tran_low_t *output,
                             int stride) {
-  vpx_fdct8x8_1_c(input, final_output, stride);
+  vpx_fdct8x8_1_c(input, output, stride);
 }
 
 void vpx_highbd_fdct16x16_c(const int16_t *input, tran_low_t *output,
@@ -792,17 +792,18 @@ void vpx_highbd_fdct16x16_1_c(const int16_t *input, tran_low_t *output,
   vpx_fdct16x16_1_c(input, output, stride);
 }
 
-void vpx_highbd_fdct32x32_c(const int16_t *input, tran_low_t *out, int stride) {
-  vpx_fdct32x32_c(input, out, stride);
+void vpx_highbd_fdct32x32_c(const int16_t *input, tran_low_t *output,
+                            int stride) {
+  vpx_fdct32x32_c(input, output, stride);
 }
 
-void vpx_highbd_fdct32x32_rd_c(const int16_t *input, tran_low_t *out,
+void vpx_highbd_fdct32x32_rd_c(const int16_t *input, tran_low_t *output,
                                int stride) {
-  vpx_fdct32x32_rd_c(input, out, stride);
+  vpx_fdct32x32_rd_c(input, output, stride);
 }
 
-void vpx_highbd_fdct32x32_1_c(const int16_t *input, tran_low_t *out,
+void vpx_highbd_fdct32x32_1_c(const int16_t *input, tran_low_t *output,
                               int stride) {
-  vpx_fdct32x32_1_c(input, out, stride);
+  vpx_fdct32x32_1_c(input, output, stride);
 }
 #endif  // CONFIG_VP9_HIGHBITDEPTH

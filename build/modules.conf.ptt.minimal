@@ -8,9 +8,7 @@ applications/mod_dptools
 applications/mod_expr
 applications/mod_httapi
 
-# Optional low-latency media fork module for AI streaming.
-# This repo does not include mod_audio_fork source by default.
-# build-ptt-minimal-linux.sh will auto-append it when present.
+codecs/mod_opus
 
 # XML dialplan used by demo routing rules
 

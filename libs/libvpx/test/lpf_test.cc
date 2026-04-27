@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <string>
+#include <tuple>
 
 #include "third_party/googletest/src/include/gtest/gtest.h"
 
@@ -56,8 +57,8 @@ typedef void (*dual_loop_op_t)(Pixel *s, int p, const uint8_t *blimit0,
                                const uint8_t *thresh1);
 #endif  // CONFIG_VP9_HIGHBITDEPTH
 
-typedef std::tr1::tuple<loop_op_t, loop_op_t, int> loop8_param_t;
-typedef std::tr1::tuple<dual_loop_op_t, dual_loop_op_t, int> dualloop8_param_t;
+typedef std::tuple<loop_op_t, loop_op_t, int> loop8_param_t;
+typedef std::tuple<dual_loop_op_t, dual_loop_op_t, int> dualloop8_param_t;
 
 void InitInput(Pixel *s, Pixel *ref_s, ACMRandom *rnd, const uint8_t limit,
                const int mask, const int32_t p, const int i) {
@@ -114,6 +115,18 @@ void InitInput(Pixel *s, Pixel *ref_s, ACMRandom *rnd, const uint8_t limit,
   }
 }
 
+uint8_t GetOuterThresh(ACMRandom *rnd) {
+  return static_cast<uint8_t>(rnd->RandRange(3 * MAX_LOOP_FILTER + 5));
+}
+
+uint8_t GetInnerThresh(ACMRandom *rnd) {
+  return static_cast<uint8_t>(rnd->RandRange(MAX_LOOP_FILTER + 1));
+}
+
+uint8_t GetHevThresh(ACMRandom *rnd) {
+  return static_cast<uint8_t>(rnd->RandRange(MAX_LOOP_FILTER + 1) >> 4);
+}
+
 class Loop8Test6Param : public ::testing::TestWithParam<loop8_param_t> {
  public:
   virtual ~Loop8Test6Param() {}
@@ -162,15 +175,15 @@ TEST_P(Loop8Test6Param, OperationCheck) {
   int first_failure = -1;
   for (int i = 0; i < count_test_block; ++i) {
     int err_count = 0;
-    uint8_t tmp = static_cast<uint8_t>(rnd(3 * MAX_LOOP_FILTER + 4));
+    uint8_t tmp = GetOuterThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     blimit[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                     tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
-    tmp = static_cast<uint8_t>(rnd(MAX_LOOP_FILTER));
+    tmp = GetInnerThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     limit[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                    tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
-    tmp = rnd.Rand8();
+    tmp = GetHevThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     thresh[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                     tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
@@ -221,15 +234,15 @@ TEST_P(Loop8Test6Param, ValueCheck) {
 
   for (int i = 0; i < count_test_block; ++i) {
     int err_count = 0;
-    uint8_t tmp = static_cast<uint8_t>(rnd(3 * MAX_LOOP_FILTER + 4));
+    uint8_t tmp = GetOuterThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     blimit[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                     tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
-    tmp = static_cast<uint8_t>(rnd(MAX_LOOP_FILTER));
+    tmp = GetInnerThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     limit[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                    tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
-    tmp = rnd.Rand8();
+    tmp = GetHevThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     thresh[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                     tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
@@ -271,27 +284,27 @@ TEST_P(Loop8Test9Param, OperationCheck) {
   int first_failure = -1;
   for (int i = 0; i < count_test_block; ++i) {
     int err_count = 0;
-    uint8_t tmp = static_cast<uint8_t>(rnd(3 * MAX_LOOP_FILTER + 4));
+    uint8_t tmp = GetOuterThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     blimit0[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                      tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
-    tmp = static_cast<uint8_t>(rnd(MAX_LOOP_FILTER));
+    tmp = GetInnerThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     limit0[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                     tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
-    tmp = rnd.Rand8();
+    tmp = GetHevThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     thresh0[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                      tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
-    tmp = static_cast<uint8_t>(rnd(3 * MAX_LOOP_FILTER + 4));
+    tmp = GetOuterThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     blimit1[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                      tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
-    tmp = static_cast<uint8_t>(rnd(MAX_LOOP_FILTER));
+    tmp = GetInnerThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     limit1[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                     tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
-    tmp = rnd.Rand8();
+    tmp = GetHevThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     thresh1[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                      tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
@@ -334,27 +347,27 @@ TEST_P(Loop8Test9Param, ValueCheck) {
   int first_failure = -1;
   for (int i = 0; i < count_test_block; ++i) {
     int err_count = 0;
-    uint8_t tmp = static_cast<uint8_t>(rnd(3 * MAX_LOOP_FILTER + 4));
+    uint8_t tmp = GetOuterThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     blimit0[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                      tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
-    tmp = static_cast<uint8_t>(rnd(MAX_LOOP_FILTER));
+    tmp = GetInnerThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     limit0[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                     tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
-    tmp = rnd.Rand8();
+    tmp = GetHevThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     thresh0[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                      tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
-    tmp = static_cast<uint8_t>(rnd(3 * MAX_LOOP_FILTER + 4));
+    tmp = GetOuterThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     blimit1[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                      tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
-    tmp = static_cast<uint8_t>(rnd(MAX_LOOP_FILTER));
+    tmp = GetInnerThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     limit1[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                     tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
-    tmp = rnd.Rand8();
+    tmp = GetHevThresh(&rnd);
     DECLARE_ALIGNED(16, const uint8_t,
                     thresh1[16]) = { tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp,
                                      tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp };
@@ -390,7 +403,7 @@ TEST_P(Loop8Test9Param, ValueCheck) {
       << "First failed at test case " << first_failure;
 }
 
-using std::tr1::make_tuple;
+using std::make_tuple;
 
 #if HAVE_SSE2
 #if CONFIG_VP9_HIGHBITDEPTH
@@ -402,10 +415,10 @@ INSTANTIATE_TEST_CASE_P(
                                  &vpx_highbd_lpf_vertical_4_c, 8),
                       make_tuple(&vpx_highbd_lpf_horizontal_8_sse2,
                                  &vpx_highbd_lpf_horizontal_8_c, 8),
-                      make_tuple(&vpx_highbd_lpf_horizontal_edge_8_sse2,
-                                 &vpx_highbd_lpf_horizontal_edge_8_c, 8),
-                      make_tuple(&vpx_highbd_lpf_horizontal_edge_16_sse2,
-                                 &vpx_highbd_lpf_horizontal_edge_16_c, 8),
+                      make_tuple(&vpx_highbd_lpf_horizontal_16_sse2,
+                                 &vpx_highbd_lpf_horizontal_16_c, 8),
+                      make_tuple(&vpx_highbd_lpf_horizontal_16_dual_sse2,
+                                 &vpx_highbd_lpf_horizontal_16_dual_c, 8),
                       make_tuple(&vpx_highbd_lpf_vertical_8_sse2,
                                  &vpx_highbd_lpf_vertical_8_c, 8),
                       make_tuple(&vpx_highbd_lpf_vertical_16_sse2,
@@ -416,10 +429,10 @@ INSTANTIATE_TEST_CASE_P(
                                  &vpx_highbd_lpf_vertical_4_c, 10),
                       make_tuple(&vpx_highbd_lpf_horizontal_8_sse2,
                                  &vpx_highbd_lpf_horizontal_8_c, 10),
-                      make_tuple(&vpx_highbd_lpf_horizontal_edge_8_sse2,
-                                 &vpx_highbd_lpf_horizontal_edge_8_c, 10),
-                      make_tuple(&vpx_highbd_lpf_horizontal_edge_16_sse2,
-                                 &vpx_highbd_lpf_horizontal_edge_16_c, 10),
+                      make_tuple(&vpx_highbd_lpf_horizontal_16_sse2,
+                                 &vpx_highbd_lpf_horizontal_16_c, 10),
+                      make_tuple(&vpx_highbd_lpf_horizontal_16_dual_sse2,
+                                 &vpx_highbd_lpf_horizontal_16_dual_c, 10),
                       make_tuple(&vpx_highbd_lpf_vertical_8_sse2,
                                  &vpx_highbd_lpf_vertical_8_c, 10),
                       make_tuple(&vpx_highbd_lpf_vertical_16_sse2,
@@ -430,10 +443,10 @@ INSTANTIATE_TEST_CASE_P(
                                  &vpx_highbd_lpf_vertical_4_c, 12),
                       make_tuple(&vpx_highbd_lpf_horizontal_8_sse2,
                                  &vpx_highbd_lpf_horizontal_8_c, 12),
-                      make_tuple(&vpx_highbd_lpf_horizontal_edge_8_sse2,
-                                 &vpx_highbd_lpf_horizontal_edge_8_c, 12),
-                      make_tuple(&vpx_highbd_lpf_horizontal_edge_16_sse2,
-                                 &vpx_highbd_lpf_horizontal_edge_16_c, 12),
+                      make_tuple(&vpx_highbd_lpf_horizontal_16_sse2,
+                                 &vpx_highbd_lpf_horizontal_16_c, 12),
+                      make_tuple(&vpx_highbd_lpf_horizontal_16_dual_sse2,
+                                 &vpx_highbd_lpf_horizontal_16_dual_c, 12),
                       make_tuple(&vpx_highbd_lpf_vertical_8_sse2,
                                  &vpx_highbd_lpf_vertical_8_c, 12),
                       make_tuple(&vpx_highbd_lpf_vertical_16_sse2,
@@ -450,10 +463,9 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(
         make_tuple(&vpx_lpf_horizontal_4_sse2, &vpx_lpf_horizontal_4_c, 8),
         make_tuple(&vpx_lpf_horizontal_8_sse2, &vpx_lpf_horizontal_8_c, 8),
-        make_tuple(&vpx_lpf_horizontal_edge_8_sse2,
-                   &vpx_lpf_horizontal_edge_8_c, 8),
-        make_tuple(&vpx_lpf_horizontal_edge_16_sse2,
-                   &vpx_lpf_horizontal_edge_16_c, 8),
+        make_tuple(&vpx_lpf_horizontal_16_sse2, &vpx_lpf_horizontal_16_c, 8),
+        make_tuple(&vpx_lpf_horizontal_16_dual_sse2,
+                   &vpx_lpf_horizontal_16_dual_c, 8),
         make_tuple(&vpx_lpf_vertical_4_sse2, &vpx_lpf_vertical_4_c, 8),
         make_tuple(&vpx_lpf_vertical_8_sse2, &vpx_lpf_vertical_8_c, 8),
         make_tuple(&vpx_lpf_vertical_16_sse2, &vpx_lpf_vertical_16_c, 8),
@@ -465,10 +477,10 @@ INSTANTIATE_TEST_CASE_P(
 #if HAVE_AVX2 && (!CONFIG_VP9_HIGHBITDEPTH)
 INSTANTIATE_TEST_CASE_P(
     AVX2, Loop8Test6Param,
-    ::testing::Values(make_tuple(&vpx_lpf_horizontal_edge_8_avx2,
-                                 &vpx_lpf_horizontal_edge_8_c, 8),
-                      make_tuple(&vpx_lpf_horizontal_edge_16_avx2,
-                                 &vpx_lpf_horizontal_edge_16_c, 8)));
+    ::testing::Values(make_tuple(&vpx_lpf_horizontal_16_avx2,
+                                 &vpx_lpf_horizontal_16_c, 8),
+                      make_tuple(&vpx_lpf_horizontal_16_dual_avx2,
+                                 &vpx_lpf_horizontal_16_dual_c, 8)));
 #endif
 
 #if HAVE_SSE2
@@ -515,15 +527,89 @@ INSTANTIATE_TEST_CASE_P(
 
 #if HAVE_NEON
 #if CONFIG_VP9_HIGHBITDEPTH
-// No neon high bitdepth functions.
+INSTANTIATE_TEST_CASE_P(
+    NEON, Loop8Test6Param,
+    ::testing::Values(make_tuple(&vpx_highbd_lpf_horizontal_4_neon,
+                                 &vpx_highbd_lpf_horizontal_4_c, 8),
+                      make_tuple(&vpx_highbd_lpf_horizontal_4_neon,
+                                 &vpx_highbd_lpf_horizontal_4_c, 10),
+                      make_tuple(&vpx_highbd_lpf_horizontal_4_neon,
+                                 &vpx_highbd_lpf_horizontal_4_c, 12),
+                      make_tuple(&vpx_highbd_lpf_horizontal_8_neon,
+                                 &vpx_highbd_lpf_horizontal_8_c, 8),
+                      make_tuple(&vpx_highbd_lpf_horizontal_8_neon,
+                                 &vpx_highbd_lpf_horizontal_8_c, 10),
+                      make_tuple(&vpx_highbd_lpf_horizontal_8_neon,
+                                 &vpx_highbd_lpf_horizontal_8_c, 12),
+                      make_tuple(&vpx_highbd_lpf_horizontal_16_neon,
+                                 &vpx_highbd_lpf_horizontal_16_c, 8),
+                      make_tuple(&vpx_highbd_lpf_horizontal_16_neon,
+                                 &vpx_highbd_lpf_horizontal_16_c, 10),
+                      make_tuple(&vpx_highbd_lpf_horizontal_16_neon,
+                                 &vpx_highbd_lpf_horizontal_16_c, 12),
+                      make_tuple(&vpx_highbd_lpf_horizontal_16_dual_neon,
+                                 &vpx_highbd_lpf_horizontal_16_dual_c, 8),
+                      make_tuple(&vpx_highbd_lpf_horizontal_16_dual_neon,
+                                 &vpx_highbd_lpf_horizontal_16_dual_c, 10),
+                      make_tuple(&vpx_highbd_lpf_horizontal_16_dual_neon,
+                                 &vpx_highbd_lpf_horizontal_16_dual_c, 12),
+                      make_tuple(&vpx_highbd_lpf_vertical_4_neon,
+                                 &vpx_highbd_lpf_vertical_4_c, 8),
+                      make_tuple(&vpx_highbd_lpf_vertical_4_neon,
+                                 &vpx_highbd_lpf_vertical_4_c, 10),
+                      make_tuple(&vpx_highbd_lpf_vertical_4_neon,
+                                 &vpx_highbd_lpf_vertical_4_c, 12),
+                      make_tuple(&vpx_highbd_lpf_vertical_8_neon,
+                                 &vpx_highbd_lpf_vertical_8_c, 8),
+                      make_tuple(&vpx_highbd_lpf_vertical_8_neon,
+                                 &vpx_highbd_lpf_vertical_8_c, 10),
+                      make_tuple(&vpx_highbd_lpf_vertical_8_neon,
+                                 &vpx_highbd_lpf_vertical_8_c, 12),
+                      make_tuple(&vpx_highbd_lpf_vertical_16_neon,
+                                 &vpx_highbd_lpf_vertical_16_c, 8),
+                      make_tuple(&vpx_highbd_lpf_vertical_16_neon,
+                                 &vpx_highbd_lpf_vertical_16_c, 10),
+                      make_tuple(&vpx_highbd_lpf_vertical_16_neon,
+                                 &vpx_highbd_lpf_vertical_16_c, 12),
+                      make_tuple(&vpx_highbd_lpf_vertical_16_dual_neon,
+                                 &vpx_highbd_lpf_vertical_16_dual_c, 8),
+                      make_tuple(&vpx_highbd_lpf_vertical_16_dual_neon,
+                                 &vpx_highbd_lpf_vertical_16_dual_c, 10),
+                      make_tuple(&vpx_highbd_lpf_vertical_16_dual_neon,
+                                 &vpx_highbd_lpf_vertical_16_dual_c, 12)));
+INSTANTIATE_TEST_CASE_P(
+    NEON, Loop8Test9Param,
+    ::testing::Values(make_tuple(&vpx_highbd_lpf_horizontal_4_dual_neon,
+                                 &vpx_highbd_lpf_horizontal_4_dual_c, 8),
+                      make_tuple(&vpx_highbd_lpf_horizontal_4_dual_neon,
+                                 &vpx_highbd_lpf_horizontal_4_dual_c, 10),
+                      make_tuple(&vpx_highbd_lpf_horizontal_4_dual_neon,
+                                 &vpx_highbd_lpf_horizontal_4_dual_c, 12),
+                      make_tuple(&vpx_highbd_lpf_horizontal_8_dual_neon,
+                                 &vpx_highbd_lpf_horizontal_8_dual_c, 8),
+                      make_tuple(&vpx_highbd_lpf_horizontal_8_dual_neon,
+                                 &vpx_highbd_lpf_horizontal_8_dual_c, 10),
+                      make_tuple(&vpx_highbd_lpf_horizontal_8_dual_neon,
+                                 &vpx_highbd_lpf_horizontal_8_dual_c, 12),
+                      make_tuple(&vpx_highbd_lpf_vertical_4_dual_neon,
+                                 &vpx_highbd_lpf_vertical_4_dual_c, 8),
+                      make_tuple(&vpx_highbd_lpf_vertical_4_dual_neon,
+                                 &vpx_highbd_lpf_vertical_4_dual_c, 10),
+                      make_tuple(&vpx_highbd_lpf_vertical_4_dual_neon,
+                                 &vpx_highbd_lpf_vertical_4_dual_c, 12),
+                      make_tuple(&vpx_highbd_lpf_vertical_8_dual_neon,
+                                 &vpx_highbd_lpf_vertical_8_dual_c, 8),
+                      make_tuple(&vpx_highbd_lpf_vertical_8_dual_neon,
+                                 &vpx_highbd_lpf_vertical_8_dual_c, 10),
+                      make_tuple(&vpx_highbd_lpf_vertical_8_dual_neon,
+                                 &vpx_highbd_lpf_vertical_8_dual_c, 12)));
 #else
 INSTANTIATE_TEST_CASE_P(
     NEON, Loop8Test6Param,
     ::testing::Values(
-        make_tuple(&vpx_lpf_horizontal_edge_8_neon,
-                   &vpx_lpf_horizontal_edge_8_c, 8),
-        make_tuple(&vpx_lpf_horizontal_edge_16_neon,
-                   &vpx_lpf_horizontal_edge_16_c, 8),
+        make_tuple(&vpx_lpf_horizontal_16_neon, &vpx_lpf_horizontal_16_c, 8),
+        make_tuple(&vpx_lpf_horizontal_16_dual_neon,
+                   &vpx_lpf_horizontal_16_dual_c, 8),
         make_tuple(&vpx_lpf_vertical_16_neon, &vpx_lpf_vertical_16_c, 8),
         make_tuple(&vpx_lpf_vertical_16_dual_neon, &vpx_lpf_vertical_16_dual_c,
                    8),
@@ -550,8 +636,9 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(
         make_tuple(&vpx_lpf_horizontal_4_dspr2, &vpx_lpf_horizontal_4_c, 8),
         make_tuple(&vpx_lpf_horizontal_8_dspr2, &vpx_lpf_horizontal_8_c, 8),
-        make_tuple(&vpx_lpf_horizontal_edge_8, &vpx_lpf_horizontal_edge_8, 8),
-        make_tuple(&vpx_lpf_horizontal_edge_16, &vpx_lpf_horizontal_edge_16, 8),
+        make_tuple(&vpx_lpf_horizontal_16_dspr2, &vpx_lpf_horizontal_16_c, 8),
+        make_tuple(&vpx_lpf_horizontal_16_dual_dspr2,
+                   &vpx_lpf_horizontal_16_dual_c, 8),
         make_tuple(&vpx_lpf_vertical_4_dspr2, &vpx_lpf_vertical_4_c, 8),
         make_tuple(&vpx_lpf_vertical_8_dspr2, &vpx_lpf_vertical_8_c, 8),
         make_tuple(&vpx_lpf_vertical_16_dspr2, &vpx_lpf_vertical_16_c, 8),
@@ -576,10 +663,9 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(
         make_tuple(&vpx_lpf_horizontal_4_msa, &vpx_lpf_horizontal_4_c, 8),
         make_tuple(&vpx_lpf_horizontal_8_msa, &vpx_lpf_horizontal_8_c, 8),
-        make_tuple(&vpx_lpf_horizontal_edge_8_msa, &vpx_lpf_horizontal_edge_8_c,
-                   8),
-        make_tuple(&vpx_lpf_horizontal_edge_16_msa,
-                   &vpx_lpf_horizontal_edge_16_c, 8),
+        make_tuple(&vpx_lpf_horizontal_16_msa, &vpx_lpf_horizontal_16_c, 8),
+        make_tuple(&vpx_lpf_horizontal_16_dual_msa,
+                   &vpx_lpf_horizontal_16_dual_c, 8),
         make_tuple(&vpx_lpf_vertical_4_msa, &vpx_lpf_vertical_4_c, 8),
         make_tuple(&vpx_lpf_vertical_8_msa, &vpx_lpf_vertical_8_c, 8),
         make_tuple(&vpx_lpf_vertical_16_msa, &vpx_lpf_vertical_16_c, 8)));

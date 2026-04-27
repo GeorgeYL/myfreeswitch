@@ -41,6 +41,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 File: fct.h
 */
 
+#include <switch_platform.h>
+
 #if !defined(FCT_INCLUDED__IMB)
 #define FCT_INCLUDED__IMB
 
@@ -69,7 +71,6 @@ with a standard logger. */
                          FCT_QUOTEME(FCT_VERSION_MICRO))
 
 #include <string.h>
-#include <assert.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -79,7 +80,7 @@ with a standard logger. */
 #include <ctype.h>
 
 #define FCT_MAX_NAME           256
-#define FCT_MAX_LOG_LINE       256
+#define FCT_MAX_LOG_LINE       2048
 
 #define nbool_t int
 #define FCT_TRUE   1
@@ -87,17 +88,7 @@ with a standard logger. */
 
 #define FCTMIN(x, y) ( x < y) ? (x) : (y)
 
-#ifndef __INTEL_COMPILER
-/* Use regular assertions for non-Intel compilers */
-#define FCT_ASSERT(expr) assert(expr)
-#else
-/* Silence Intel warnings on assert(expr && "str") or assert("str") */
-#define FCT_ASSERT(expr) do {             \
-    _Pragma("warning(push,disable:279)"); \
-    assert(expr);                         \
-    _Pragma("warning(pop)");              \
-    } while (0)
-#endif
+#define FCT_ASSERT(expr) switch_assert(expr)
 
 #if defined(__cplusplus)
 #define FCT_EXTERN_C extern "C"
@@ -264,7 +255,7 @@ fctstr_safe_cpy(char *dst, char const *src, size_t num)
 #if defined(WIN32) && _MSC_VER >= 1400
     strncpy_s(dst, num, src, _TRUNCATE);
 #else
-    strncpy(dst, src, num);
+    strncpy(dst, src, num - 1);
 #endif
     dst[num-1] = '\0';
 }
@@ -314,6 +305,7 @@ fctstr_clone(char const *s)
     FCT_ASSERT( s != NULL && "invalid arg");
     klen = strlen(s)+1;
     k = (char*)malloc(sizeof(char)*klen+1);
+    FCT_ASSERT( k != NULL );
     fctstr_safe_cpy(k, s, klen);
     return k;
 }
@@ -332,6 +324,7 @@ fctstr_clone_lower(char const *s)
     }
     klen = strlen(s)+1;
     k = (char*)malloc(sizeof(char)*klen+1);
+    FCT_ASSERT( k != NULL );
     for ( i=0; i != klen; ++i )
     {
         k[i] = (char)tolower(s[i]);
@@ -750,6 +743,7 @@ fct_nlist__final(fct_nlist_t *list, fct_nlist_on_del_t on_del)
     FCT_ASSERT( list != NULL );
     fct_nlist__clear(list, on_del);
     free(list->itm_list);
+    list->itm_list = NULL;
 }
 
 
@@ -766,6 +760,7 @@ fct_nlist__init2(fct_nlist_t *list, size_t start_sz)
         list->itm_list = (void**)malloc(sizeof(void*)*start_sz);
         if ( list->itm_list == NULL )
         {
+            list->used_itm_num = 0;
             return 0;
         }
     }
@@ -1722,6 +1717,12 @@ fct_clp__parse(fct_clp_t *clp, int argc, char const *argv[])
             arg =NULL;
         }
     }
+
+    if (arg != NULL)
+    {
+        free(arg);
+        arg = NULL;
+    }
 }
 
 
@@ -2027,6 +2028,7 @@ fctkern__add_prefix_filter(fctkern_t *nk, char const *prefix_filter)
     in our little list. */
     filter_len = strlen(prefix_filter);
     filter = (char*)malloc(sizeof(char)*(filter_len+1));
+    FCT_ASSERT( filter != NULL );
     fctstr_safe_cpy(filter, prefix_filter, filter_len+1);
     fct_nlist__append(&(nk->prefix_list), (void*)filter);
 }
@@ -2199,12 +2201,14 @@ should be directly from the program's main. */
 static int
 fctkern__init(fctkern_t *nk, int argc, const char *argv[])
 {
+    int ok = 0;
     if ( argc == 0 && argv == NULL )
     {
         return 0;
     }
     memset(nk, 0, sizeof(fctkern_t));
-    fct_clp__init(&(nk->cl_parser), NULL);
+    ok = fct_clp__init(&(nk->cl_parser), NULL);
+    if (!ok) return ok;
     fct_nlist__init(&(nk->logger_list));
     nk->lt_usr = NULL;  /* Supplied via 'install' mechanics. */
     nk->lt_sys = FCT_LOGGER_TYPES;
@@ -2700,6 +2704,7 @@ static void
 fct_logger_record_failure(fctchk_t const* chk, fct_nlist_t* fail_list)
 {
     fctchk_t *dup_chk = (fctchk_t *)malloc(sizeof(*dup_chk));
+    FCT_ASSERT( dup_chk != NULL );
     memcpy(dup_chk, chk, sizeof(*dup_chk));
     fct_nlist__append(fail_list, (void *)dup_chk);
 }
@@ -2854,6 +2859,10 @@ fct_standard_logger__on_chk(
     /* Only record failures. */
     if ( !fctchk__is_pass(e->chk) )
     {
+        printf("\nTEST FAIL: %s(%d): %s\n",
+            fctchk__file(e->chk),
+            fctchk__lineno(e->chk),
+            fctchk__msg(e->chk));
         fct_logger_record_failure(e->chk, &(logger->failed_cndtns_list));
     }
 }
@@ -3668,9 +3677,12 @@ with. If we fail a setup up, then we go directly to a teardown mode. */
            fct_ts__add_test(                                             \
                 fctkern_ptr__->ns.ts_curr, fctkern_ptr__->ns.curr_test   \
                 );                                                       \
+       } else {                                                          \
+         fct_test__del(fctkern_ptr__->ns.curr_test);                     \
+         fctkern_ptr__->ns.curr_test = NULL;                             \
        }                                                                 \
     } else {                                                             \
-       assert("invalid condition for fct_req!");                         \
+       switch_assert("invalid condition for fct_req!");                  \
        _fct_req((_CNDTN_));                                              \
     }
 

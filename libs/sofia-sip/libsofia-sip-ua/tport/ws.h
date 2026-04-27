@@ -14,6 +14,8 @@
 #include <unistd.h>
 #else
 #pragma warning(disable:4996)
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #endif
 #include <string.h>
 #include <string.h>

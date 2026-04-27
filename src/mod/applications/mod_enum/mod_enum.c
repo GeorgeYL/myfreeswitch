@@ -75,6 +75,9 @@ static struct {
 	int retries;
 	int random;
 	char *nameserver[ENUM_MAXNAMESERVERS];
+#ifdef _MSC_VER
+	char *nameserver_buf;
+#endif
 } globals;
 
 SWITCH_DECLARE_GLOBAL_STRING_FUNC(set_global_root, globals.root);
@@ -164,7 +167,6 @@ static switch_status_t load_config(void)
 	if (!globals.nameserver[0]) {
 		HKEY hKey;
 		DWORD data_sz;
-		char* buf;
 		RegOpenKeyEx(HKEY_LOCAL_MACHINE,
 			"SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
 			0, KEY_QUERY_VALUE, &hKey);
@@ -172,15 +174,15 @@ static switch_status_t load_config(void)
 		if (hKey) {
 			RegQueryValueEx(hKey, "DhcpNameServer", NULL, NULL, NULL, &data_sz);
 			if (data_sz) {
-				buf = (char*)malloc(data_sz + 1);
+				globals.nameserver_buf = (char*)malloc(data_sz + 1);
 
-				RegQueryValueEx(hKey, "DhcpNameServer", NULL, NULL, (LPBYTE)buf, &data_sz);
+				RegQueryValueEx(hKey, "DhcpNameServer", NULL, NULL, (LPBYTE)globals.nameserver_buf, &data_sz);
 
-				if(buf[data_sz - 1] != 0) {
-					buf[data_sz] = 0;
+				if(globals.nameserver_buf[data_sz - 1] != 0) {
+					globals.nameserver_buf[data_sz] = 0;
 				}
-				switch_replace_char(buf, ' ', 0, SWITCH_FALSE); /* only use the first entry ex "192.168.1.1 192.168.1.2" */
-				globals.nameserver[0] = buf;
+				switch_replace_char(globals.nameserver_buf, ' ', 0, SWITCH_FALSE); /* only use the first entry ex "192.168.1.1 192.168.1.2" */
+				globals.nameserver[0] = globals.nameserver_buf;
 			}
 			
 			RegCloseKey(hKey);
@@ -301,7 +303,6 @@ static void parse_naptr(const ldns_rr *naptr, const char *number, enum_record_t 
 	char *argv[11] = { 0 };
 	int i, argc;
 	char *pack[4] = { 0 };
-	int packc;
 
 	char *p;
 	int order = 10;
@@ -349,7 +350,7 @@ static void parse_naptr(const ldns_rr *naptr, const char *number, enum_record_t 
 	}
 
 
-	if ((packc = switch_split(packstr, '!', pack))) {
+	if (switch_split(packstr, '!', pack)) {
 		regex = pack[1];
 		replace = pack[2];
 	} else {
@@ -494,6 +495,10 @@ switch_status_t ldns_lookup(const char *number, const char *root, char *server_n
 	if (!added_server) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "No Nameservers specified, using host default\n");
 		/* create a new resolver from /etc/resolv.conf */
+		if (res) {
+			ldns_resolver_free(res);
+			res = NULL;
+		}
 		s = ldns_resolver_new_frm_file(&res, NULL);
 	}
 
@@ -668,7 +673,6 @@ SWITCH_STANDARD_DIALPLAN(enum_dialplan_hunt)
 
 SWITCH_STANDARD_APP(enum_app_function)
 {
-	int argc = 0;
 	char *argv[4] = { 0 };
 	char *mydata = NULL;
 	char *dest = NULL, *root = NULL;
@@ -686,7 +690,7 @@ SWITCH_STANDARD_APP(enum_app_function)
 		return;
 	}
 
-	if ((argc = switch_separate_string(mydata, ' ', argv, (sizeof(argv) / sizeof(argv[0]))))) {
+	if (switch_separate_string(mydata, ' ', argv, (sizeof(argv) / sizeof(argv[0])))) {
 		dest = argv[0];
 		root = argv[1];
 		if (enum_lookup(root, dest, &results, channel, session) == SWITCH_STATUS_SUCCESS) {
@@ -732,7 +736,6 @@ SWITCH_STANDARD_APP(enum_app_function)
 
 SWITCH_STANDARD_API(enum_api)
 {
-	int argc = 0;
 	char *argv[4] = { 0 };
 	char *mydata = NULL;
 	char *dest = NULL, *root = NULL;
@@ -753,7 +756,7 @@ SWITCH_STANDARD_API(enum_api)
 		abort();
 	}
 
-	if ((argc = switch_separate_string(mydata, ' ', argv, (sizeof(argv) / sizeof(argv[0]))))) {
+	if (switch_separate_string(mydata, ' ', argv, (sizeof(argv) / sizeof(argv[0])))) {
 		dest = argv[0];
 		root = argv[1];
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Looking up %s@%s\n", dest, root);
@@ -809,7 +812,6 @@ static void do_load(void)
 
 SWITCH_STANDARD_API(enum_function)
 {
-	int argc = 0;
 	char *argv[4] = { 0 };
 	enum_record_t *results, *rp;
 	char *mydata = NULL;
@@ -825,7 +827,7 @@ SWITCH_STANDARD_API(enum_function)
 		return SWITCH_STATUS_SUCCESS;
 	}
 
-	if ((argc = switch_separate_string(mydata, ' ', argv, (sizeof(argv) / sizeof(argv[0]))))) {
+	if (switch_separate_string(mydata, ' ', argv, (sizeof(argv) / sizeof(argv[0])))) {
 		dest = argv[0];
 		root = argv[1];
 		switch_assert(dest);
@@ -924,6 +926,9 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_enum_shutdown)
 
 	switch_safe_free(globals.root);
 	switch_safe_free(globals.isn_root);
+#ifdef _MSC_VER
+	switch_safe_free(globals.nameserver_buf);
+#endif
 
 	return SWITCH_STATUS_UNLOAD;
 }

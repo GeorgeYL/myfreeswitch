@@ -17,8 +17,8 @@
  ***************************************************************************/
 
 /****************************************************************************
-*  Header Files
-****************************************************************************/
+ *  Header Files
+ ****************************************************************************/
 #include "./vpx_scale_rtcd.h"
 #include "vpx_mem/vpx_mem.h"
 #include "vpx_scale/vpx_scale.h"
@@ -166,6 +166,8 @@ static void scale1d_c(const unsigned char *source, int source_step,
   unsigned char right_pixel = *(source + source_step);
 
   (void)source_length;
+
+  assert(dest_scale);
 
   /* These asserts are needed if there are boundary issues... */
   /*assert ( dest_scale > source_scale );*/

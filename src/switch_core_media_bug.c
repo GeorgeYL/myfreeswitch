@@ -69,7 +69,7 @@ static void switch_core_media_bug_destroy(switch_media_bug_t **bug)
 		switch_thread_join(&st, bp->video_bug_thread);
 	}
 
-	if (switch_test_flag(bp, SMBF_READ_VIDEO_PATCH) && bp->session->video_read_codec) {
+	if (bp->session && switch_test_flag(bp, SMBF_READ_VIDEO_PATCH) && bp->session->video_read_codec) {
 		switch_clear_flag(bp->session->video_read_codec, SWITCH_CODEC_FLAG_VIDEO_PATCHING);
 	}
 
@@ -466,7 +466,6 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_patch_spy_frame(switch_med
 {
 	switch_queue_t *spy_q = NULL;
 	int w = 0, h = 0;
-	switch_status_t status;
 	void *pop;
 	int i;
 
@@ -479,7 +478,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_patch_spy_frame(switch_med
 	spy_q = bug->spy_video_queue[rw];
 
 	while(switch_queue_size(spy_q) > 0) {
-		if ((status = switch_queue_trypop(spy_q, &pop)) == SWITCH_STATUS_SUCCESS) {
+		if (switch_queue_trypop(spy_q, &pop) == SWITCH_STATUS_SUCCESS) {
 			switch_img_free(&bug->spy_img[rw]);
 			if (!(bug->spy_img[rw] = (switch_image_t *) pop)) {
 				break;
@@ -599,10 +598,11 @@ static void *SWITCH_THREAD_FUNC video_bug_thread(switch_thread_t *thread, void *
 	switch_frame_t frame = { 0 };
 	switch_timer_t timer = { 0 };
 	switch_mm_t mm = { 0 };
-	int fps = 15;
 	int vw = 1280;
 	int vh = 720;
 	int last_w = 0, last_h = 0, other_last_w = 0, other_last_h = 0;
+	switch_fps_t fps_data = { 0 };
+	float fps;
 	switch_rgb_color_t color = { 0 };
 	switch_color_set_rgb(&color, "#000000");
 
@@ -627,17 +627,19 @@ static void *SWITCH_THREAD_FUNC video_bug_thread(switch_thread_t *thread, void *
 
 	switch_core_media_bug_get_media_params(bug, &mm);
 
-	if (mm.fps) {
-		fps = (int) mm.fps;
-	}
-
 	if (mm.vw) vw = mm.vw;
 	if (mm.vh) vh = mm.vh;
 
-	switch_core_timer_init(&timer, "soft", 1000 / fps, (90000 / (1000 / fps)), NULL);
+	if (mm.fps) {
+		fps = mm.fps;
+	} else {
+		fps = 15;
+	}
+	switch_calc_video_fps(&fps_data, fps);
+
+	switch_core_timer_init(&timer, "soft", fps_data.ms, fps_data.samples, NULL);
 
 	while (bug->ready) {
-		switch_status_t status;
 		int w = 0, h = 0, ok = 1, new_main = 0, new_other = 0, new_canvas = 0;
 		
 		switch_core_timer_next(&timer);
@@ -653,7 +655,7 @@ static void *SWITCH_THREAD_FUNC video_bug_thread(switch_thread_t *thread, void *
 		w = vw / 2;
 		h = vh;
 
-		if ((status = switch_queue_trypop(main_q, &pop)) == SWITCH_STATUS_SUCCESS) {
+		if (switch_queue_trypop(main_q, &pop) == SWITCH_STATUS_SUCCESS) {
 			switch_img_free(&img);
 
 			if (!pop) {
@@ -674,7 +676,7 @@ static void *SWITCH_THREAD_FUNC video_bug_thread(switch_thread_t *thread, void *
 		if (other_q) {
 			flush_video_queue(other_q, 1);
 
-			if ((status = switch_queue_trypop(other_q, &other_pop)) == SWITCH_STATUS_SUCCESS) {
+			if (switch_queue_trypop(other_q, &other_pop) == SWITCH_STATUS_SUCCESS) {
 				switch_img_free(&other_img);
 				other_img = (switch_image_t *) other_pop;
 
@@ -825,6 +827,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_add(switch_core_session_t 
 
 	if (!switch_channel_media_ready(session->channel)) {
 		if (switch_channel_pre_answer(session->channel) != SWITCH_STATUS_SUCCESS) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Cannot establish media. Media bug add failed.\n");
 			return SWITCH_STATUS_FALSE;
 		}
 	}
@@ -886,8 +889,11 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_add(switch_core_session_t 
 	}
 
 	bug->stop_time = stop_time;
-	bytes = bug->read_impl.decoded_bytes_per_packet;
 
+	if (!(bytes = bug->read_impl.decoded_bytes_per_packet)) {
+		bytes = 320;
+	}
+	
 	if (!bug->flags) {
 		bug->flags = (SMBF_READ_STREAM | SMBF_WRITE_STREAM);
 	}
@@ -910,6 +916,14 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_add(switch_core_session_t 
 
 	if (switch_test_flag(bug, SMBF_READ_VIDEO_STREAM) || switch_test_flag(bug, SMBF_WRITE_VIDEO_STREAM) || switch_test_flag(bug, SMBF_READ_VIDEO_PING) || switch_test_flag(bug, SMBF_WRITE_VIDEO_PING)) {
 		switch_channel_set_flag_recursive(session->channel, CF_VIDEO_DECODED_READ);
+
+		if (switch_test_flag(bug, SMBF_READ_VIDEO_STREAM) || switch_test_flag(bug, SMBF_READ_VIDEO_PING)) {
+			switch_channel_set_flag_recursive(session->channel, CF_VIDEO_READ_TAPPED);
+		}
+
+		if (switch_test_flag(bug, SMBF_WRITE_VIDEO_STREAM) || switch_test_flag(bug, SMBF_WRITE_VIDEO_PING)) {
+			switch_channel_set_flag_recursive(session->channel, CF_VIDEO_WRITE_TAPPED);
+		}
 	}
 
 	if (switch_test_flag(bug, SMBF_SPY_VIDEO_STREAM) || switch_core_media_bug_test_flag(bug, SMBF_SPY_VIDEO_STREAM_BLEG)) {
@@ -966,7 +980,13 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_add(switch_core_session_t 
 		session->bugs = bug;
 		added = 1;
 	}
-	
+
+	if (!added && switch_test_flag(bug, SMBF_FIRST)) {
+		bug->next = session->bugs;
+		session->bugs = bug;
+		added = 1;
+	}
+
 	for(bp = session->bugs; bp; bp = bp->next) {
 		if (bp->ready && !switch_test_flag(bp, SMBF_TAP_NATIVE_READ) && !switch_test_flag(bp, SMBF_TAP_NATIVE_WRITE)) {
 			tap_only = 0;
@@ -1024,9 +1044,14 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_flush_all(switch_core_sess
 SWITCH_DECLARE(switch_status_t) switch_core_media_bug_transfer_callback(switch_core_session_t *orig_session, switch_core_session_t *new_session,
 																		switch_media_bug_callback_t callback, void * (*user_data_dup_func) (switch_core_session_t *, void *))
 {
-	switch_media_bug_t *new_bug = NULL, *cur = NULL, *bp = NULL, *last = NULL;
+	switch_media_bug_t *new_bug = NULL, *cur = NULL, *bp = NULL, *last = NULL, *old_last_next = NULL, *old_bugs = NULL;
 	int total = 0;
 
+	if (!switch_channel_media_ready(new_session->channel)) {
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(orig_session), SWITCH_LOG_WARNING, "Cannot transfer media bugs to a channel with no media.\n");
+		return SWITCH_STATUS_FALSE;
+	}
+	
 	switch_thread_rwlock_wrlock(orig_session->bug_rwlock);
 	bp = orig_session->bugs;
 	while (bp) {
@@ -1035,19 +1060,36 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_transfer_callback(switch_c
 
 		if (cur->callback == callback) {
 			if (last) {
+				old_last_next = last->next;
 				last->next = cur->next;
 			} else {
+				old_bugs = orig_session->bugs;
 				orig_session->bugs = cur->next;
 			}
 
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(orig_session), SWITCH_LOG_DEBUG, "Transfering %s from %s to %s\n", cur->target,
 							  switch_core_session_get_name(orig_session), switch_core_session_get_name(new_session));
 
-			switch_core_media_bug_add(new_session, cur->function, cur->target, cur->callback,
-									  user_data_dup_func(new_session, cur->user_data),
-									  cur->stop_time, cur->flags, &new_bug);
-			switch_core_media_bug_destroy(&cur);
-			total++;
+			if ((switch_core_media_bug_add(new_session, cur->function, cur->target, cur->callback,
+										   user_data_dup_func(new_session, cur->user_data),
+										   cur->stop_time, cur->flags, &new_bug) == SWITCH_STATUS_SUCCESS)) {
+				switch_core_media_bug_destroy(&cur);
+				total++;
+			} else {
+				/* Call the dup function again to revert to original session */
+				user_data_dup_func(orig_session, cur->user_data);
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(orig_session), SWITCH_LOG_DEBUG, "Adding a bug failed: abort transfering %s from %s to %s\n", cur->target,
+					switch_core_session_get_name(orig_session), switch_core_session_get_name(new_session));
+
+				/* Put the old bug back to the original session's list of bugs */
+				if (last) {
+					last->next = old_last_next;
+				} else {
+					orig_session->bugs = old_bugs;
+				}
+
+				last = cur;
+			}
 		} else {
 			last = cur;
 		}
@@ -1261,6 +1303,14 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_close(switch_media_bug_t *
 
 		if (switch_test_flag(bp, SMBF_READ_VIDEO_STREAM) || switch_test_flag(bp, SMBF_WRITE_VIDEO_STREAM) || switch_test_flag(bp, SMBF_READ_VIDEO_PING) || switch_test_flag(bp, SMBF_WRITE_VIDEO_PING)) {
 			switch_channel_clear_flag_recursive(bp->session->channel, CF_VIDEO_DECODED_READ);
+
+			if (switch_test_flag(bp, SMBF_READ_VIDEO_STREAM) || switch_test_flag(bp, SMBF_READ_VIDEO_PING)) {
+				switch_channel_clear_flag_recursive(bp->session->channel, CF_VIDEO_READ_TAPPED);
+			}
+
+			if (switch_test_flag(bp, SMBF_WRITE_VIDEO_STREAM) || switch_test_flag(bp, SMBF_WRITE_VIDEO_PING)) {
+				switch_channel_clear_flag_recursive(bp->session->channel, CF_VIDEO_WRITE_TAPPED);
+			}
 		}
 
 		bp->ready = 0;

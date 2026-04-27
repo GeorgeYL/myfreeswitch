@@ -912,6 +912,7 @@ void rayo_message_send(struct rayo_actor *from, const char *to, iks *payload, in
 {
 	const char *msg_name;
 	struct rayo_message *msg = malloc(sizeof(*msg));
+	switch_assert(msg);
 	if (dup) {
 		msg->payload = iks_copy(payload);
 	} else {
@@ -2212,7 +2213,7 @@ static iks *exec_conference_api(switch_core_session_t *session, const char *conf
 	const char *conf_member_id = switch_channel_get_variable(switch_core_session_get_channel(session), "conference_member_id");
 	SWITCH_STANDARD_STREAM(stream);
 	switch_api_execute("conference", switch_core_session_sprintf(session, "%s %s %s", conf_name, command, conf_member_id), NULL, &stream);
-	if (!zstr(stream.data) && strncmp("OK", stream.data, 2)) {
+	if (!zstr(stream.data) && strncmp("+OK", stream.data, 3)) {
 		response = iks_new_error_detailed_printf(node, STANZA_ERROR_SERVICE_UNAVAILABLE, "%s", stream.data);
 	}
 	switch_safe_free(stream.data);
@@ -4764,7 +4765,7 @@ static void send_console_command(struct rayo_client *client, const char *to, con
 	iks *command = NULL;
 	iksparser *p = iks_dom_new(&command);
 
-	if (iks_parse(p, command_str, 0, 1) == IKS_OK && command) {
+	if (p && iks_parse(p, command_str, 0, 1) == IKS_OK && command) {
 		char *str;
 		iks *iq = NULL;
 
@@ -4783,9 +4784,11 @@ static void send_console_command(struct rayo_client *client, const char *to, con
 		if (!iks_find_attrib(iq, "type")) {
 			iks_insert_attrib(iq, "type", "set");
 		}
+
 		if (!iks_find_attrib(iq, "id")) {
 			iks_insert_attrib_printf(iq, "id", "console-%i", RAYO_SEQ_NEXT(client));
 		}
+
 		iks_insert_attrib(iq, "from", RAYO_JID(client));
 
 		/* send command */
@@ -4793,10 +4796,13 @@ static void send_console_command(struct rayo_client *client, const char *to, con
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "\nSEND: to %s, %s\n", to, str);
 		rayo_client_command_recv(client, iq);
 		iks_delete(command);
+		iks_parser_delete(p);
 	} else {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "bad request xml\n");
+		if (p) {
+			iks_parser_delete(p);
+		}
 	}
-	iks_parser_delete(p);
 }
 
 /**
@@ -4853,7 +4859,7 @@ static int alias_api(struct rayo_cmd_alias *alias, char *args, switch_stream_han
 	cmd = strdup(alias->cmd);
 	for (i = 1; i < argc; i++) {
 		char *cmd_new;
-		char to_replace[4] = { 0 };
+		char to_replace[12] = { 0 };
 		sprintf(to_replace, "$%i", i);
 		cmd_new = switch_string_replace(cmd, to_replace, argv[i]);
 		free(cmd);

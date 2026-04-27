@@ -38,6 +38,7 @@ struct switch_scheduler_task_container {
 	int in_thread;
 	int destroyed;
 	int running;
+	int destroy_requested;
 	switch_scheduler_func_t func;
 	switch_memory_pool_t *pool;
 	uint32_t flags;
@@ -53,7 +54,7 @@ static struct {
 	int task_thread_running;
 	switch_queue_t *event_queue;
 	switch_memory_pool_t *memory_pool;
-} globals;
+} globals = { 0 };
 
 static void switch_scheduler_execute(switch_scheduler_task_container_t *tp)
 {
@@ -62,11 +63,12 @@ static void switch_scheduler_execute(switch_scheduler_task_container_t *tp)
 
 	tp->func(&tp->task);
 
+	switch_mutex_lock(globals.task_mutex);
 	if (tp->task.repeat) {
 		tp->task.runtime = switch_epoch_time_now(NULL) + tp->task.repeat;
 	}
 
-	if (tp->task.runtime > tp->executed) {
+	if (!tp->destroy_requested && tp->task.runtime > tp->executed) {
 		tp->executed = 0;
 		if (switch_event_create(&event, SWITCH_EVENT_RE_SCHEDULE) == SWITCH_STATUS_SUCCESS) {
 			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Task-ID", "%u", tp->task.task_id);
@@ -79,6 +81,7 @@ static void switch_scheduler_execute(switch_scheduler_task_container_t *tp)
 	} else {
 		tp->destroyed = 1;
 	}
+	switch_mutex_unlock(globals.task_mutex);
 }
 
 static void *SWITCH_THREAD_FUNC task_own_thread(switch_thread_t *thread, void *obj)
@@ -206,9 +209,21 @@ static void *SWITCH_THREAD_FUNC switch_scheduler_task_thread(switch_thread_t *th
 }
 
 SWITCH_DECLARE(uint32_t) switch_scheduler_add_task(time_t task_runtime,
-												   switch_scheduler_func_t func,
-												   const char *desc, const char *group, uint32_t cmd_id, void *cmd_arg, switch_scheduler_flag_t flags)
+	switch_scheduler_func_t func,
+	const char *desc, const char *group, uint32_t cmd_id, void *cmd_arg, switch_scheduler_flag_t flags)
 {
+	uint32_t task_id;
+
+	switch_scheduler_add_task_ex(task_runtime, func, desc, group, cmd_id, cmd_arg, flags, &task_id);
+
+	return task_id;
+}
+
+SWITCH_DECLARE(uint32_t) switch_scheduler_add_task_ex(time_t task_runtime,
+												   switch_scheduler_func_t func,
+												   const char *desc, const char *group, uint32_t cmd_id, void *cmd_arg, switch_scheduler_flag_t flags, uint32_t *task_id)
+{
+	uint32_t result;
 	switch_scheduler_task_container_t *container, *tp;
 	switch_event_t *event;
 	switch_time_t now = switch_epoch_time_now(NULL);
@@ -217,6 +232,7 @@ SWITCH_DECLARE(uint32_t) switch_scheduler_add_task(time_t task_runtime,
 	switch_mutex_lock(globals.task_mutex);
 	switch_zmalloc(container, sizeof(*container));
 	switch_assert(func);
+	switch_assert(task_id);
 
 	if (task_runtime < now) {
 		container->task.repeat = (uint32_t)task_runtime;
@@ -243,8 +259,6 @@ SWITCH_DECLARE(uint32_t) switch_scheduler_add_task(time_t task_runtime,
 
 	for (container->task.task_id = 0; !container->task.task_id; container->task.task_id = ++globals.task_id);
 
-	switch_mutex_unlock(globals.task_mutex);
-
 	tp = container;
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Added task %u %s (%s) to run at %" SWITCH_INT64_T_FMT "\n",
 					  tp->task.task_id, tp->desc, switch_str_nil(tp->task.group), tp->task.runtime);
@@ -257,7 +271,12 @@ SWITCH_DECLARE(uint32_t) switch_scheduler_add_task(time_t task_runtime,
 		switch_queue_push(globals.event_queue, event);
 		event = NULL;
 	}
-	return container->task.task_id;
+
+	result = *task_id = container->task.task_id;
+
+	switch_mutex_unlock(globals.task_mutex);
+
+	return result;
 }
 
 SWITCH_DECLARE(uint32_t) switch_scheduler_del_task_id(uint32_t task_id)
@@ -275,12 +294,13 @@ SWITCH_DECLARE(uint32_t) switch_scheduler_del_task_id(uint32_t task_id)
 			}
 
 			if (tp->running) {
-				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Attempt made to delete running task #%u (group %s)\n",
+				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Attempt made to delete running task #%u (group %s)\n",
 								  tp->task.task_id, tp->task.group);
-				break;
+				tp->destroy_requested++;
+			} else {
+				tp->destroyed++;
 			}
 
-			tp->destroyed++;
 			delcnt++;
 			break;
 		}
@@ -314,7 +334,13 @@ SWITCH_DECLARE(uint32_t) switch_scheduler_del_task_group(const char *group)
 								  tp->task.task_id, group);
 				continue;
 			}
-			tp->destroyed++;
+			if (tp->running) {
+				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Attempt made to delete running task #%u (group %s)\n",
+								  tp->task.task_id, tp->task.group);
+				tp->destroy_requested++;
+			} else {
+				tp->destroyed++;
+			}
 			delcnt++;
 		}
 	}

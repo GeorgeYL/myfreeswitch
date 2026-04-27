@@ -124,12 +124,16 @@ void conference_utils_set_mflags(const char *flags, member_flag_t *f)
 				f[MFLAG_MUTE_DETECT] = 1;
 			} else if (!strcasecmp(argv[i], "dist-dtmf")) {
 				f[MFLAG_DIST_DTMF] = 1;
+			} else if (!strcasecmp(argv[i], "skip-dtmf")) {
+				f[MFLAG_SKIP_DTMF] = 1;
 			} else if (!strcasecmp(argv[i], "moderator")) {
 				f[MFLAG_MOD] = 1;
 			} else if (!strcasecmp(argv[i], "nomoh")) {
 				f[MFLAG_NOMOH] = 1;
 			} else if (!strcasecmp(argv[i], "endconf")) {
 				f[MFLAG_ENDCONF] = 1;
+			} else if (!strcasecmp(argv[i], "mandatory_member_endconf")) {
+				f[MFLAG_MANDATORY_MEMBER_ENDCONF] = 1;
 			} else if (!strcasecmp(argv[i], "mintwo")) {
 				f[MFLAG_MINTWO] = 1;
 			} else if (!strcasecmp(argv[i], "talk-data-events")) {
@@ -216,6 +220,8 @@ void conference_utils_set_cflags(const char *flags, conference_flag_t *f)
 				f[CFLAG_PERSONAL_CANVAS] = 1;
 			} else if (!strcasecmp(argv[i], "ded-vid-layer-audio-floor")) {
 				f[CFLAG_DED_VID_LAYER_AUDIO_FLOOR] = 1;
+			} else if (!strcasecmp(argv[i], "breakable")) {
+				f[CFLAG_BREAKABLE] = 1;
 			}
 		}
 
@@ -368,15 +374,24 @@ void conference_utils_member_set_flag_locked(conference_member_t *member, member
 	switch_mutex_unlock(member->flag_mutex);
 }
 
+static void check_cleared_flag(conference_member_t *member, member_flag_t flag)
+{
+	if (flag == MFLAG_RUNNING && member->session) {
+		switch_core_session_kill_channel(member->session, SWITCH_SIG_BREAK);
+	}
+}
+
 void conference_utils_member_clear_flag(conference_member_t *member, member_flag_t flag)
 {
 	member->flags[flag] = 0;
+	check_cleared_flag(member, flag);
 }
 void conference_utils_member_clear_flag_locked(conference_member_t *member, member_flag_t flag)
 {
 	switch_mutex_lock(member->flag_mutex);
 	member->flags[flag] = 0;
 	switch_mutex_unlock(member->flag_mutex);
+	check_cleared_flag(member, flag);
 }
 switch_bool_t conference_utils_member_test_flag(conference_member_t *member, member_flag_t flag)
 {

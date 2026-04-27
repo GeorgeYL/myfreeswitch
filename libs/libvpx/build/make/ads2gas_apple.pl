@@ -20,9 +20,7 @@
 
 print "@ This file was created from a .asm file\n";
 print "@  using the ads2gas_apple.pl script.\n\n";
-print "\t.set WIDE_REFERENCE, 0\n";
-print "\t.set ARCHITECTURE, 5\n";
-print "\t.set DO1STROUNDING, 0\n";
+print "\t.syntax unified\n";
 
 my %register_aliases;
 my %macro_aliases;
@@ -119,18 +117,6 @@ while (<STDIN>)
     # Constants defined in scope
     s/DCD(.*)/.long $1/;
     s/DCB(.*)/.byte $1/;
-
-    # Build a hash of all the register - alias pairs.
-    if (s/(.*)RN(.*)/$1 .req $2/g)
-    {
-        $register_aliases{trim($1)} = trim($2);
-        next;
-    }
-
-    while (($key, $value) = each(%register_aliases))
-    {
-        s/\b$key\b/$value/g;
-    }
 
     # Make function visible to linker, and make additional symbol with
     # prepended underscore

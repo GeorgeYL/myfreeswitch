@@ -57,6 +57,8 @@
 #define FREESWITCH_XML_H
 #include <switch.h>
 
+/* Use UTF-8 as the general encoding */
+#define USE_UTF_8_ENCODING SWITCH_TRUE
 
 struct switch_xml_binding;
 
@@ -69,7 +71,8 @@ SWITCH_BEGIN_EXTERN_C
 	SWITCH_XML_ROOT = (1 << 0),	// root
 	SWITCH_XML_NAMEM = (1 << 1),	// name is malloced
 	SWITCH_XML_TXTM = (1 << 2),	// txt is malloced
-	SWITCH_XML_DUP = (1 << 3)	// attribute name and value are strduped
+	SWITCH_XML_DUP = (1 << 3),	// attribute name and value are strduped
+	SWITCH_XML_CDATA = (1 << 4) // body is in CDATA
 } switch_xml_flag_t;
 
 /*! \brief A representation of an XML tree */
@@ -99,6 +102,10 @@ struct switch_xml {
 	/*! is_switch_xml_root bool */
 	switch_bool_t is_switch_xml_root_t;
 	uint32_t refs;
+	/*! pointer to end of opening tag, '>', in the original parsed text */
+	const char *open;
+	/*! pointer to start of closing tag, '<', in the original parsed text */
+	const char *close;
 };
 
 /*!
@@ -212,10 +219,15 @@ SWITCH_DECLARE(switch_xml_t) switch_xml_get(_In_ switch_xml_t xml,...);
 ///\ must be freed.
 ///\param xml the xml node
 ///\param prn_header add <?xml version..> header too
+///\param use_utf8_encoding encoding into ampersand entities for UTF-8 chars
 ///\return the ampersanded html text string to display xml
-SWITCH_DECLARE(char *) switch_xml_toxml(_In_ switch_xml_t xml, _In_ switch_bool_t prn_header);
-SWITCH_DECLARE(char *) switch_xml_toxml_nolock(switch_xml_t xml, _In_ switch_bool_t prn_header);
-SWITCH_DECLARE(char *) switch_xml_tohtml(_In_ switch_xml_t xml, _In_ switch_bool_t prn_header);
+#define switch_xml_toxml(xml, prn_header) switch_xml_toxml_ex(xml, prn_header, USE_UTF_8_ENCODING)
+#define switch_xml_toxml_nolock(xml, prn_header) switch_xml_toxml_nolock_ex(xml, prn_header, USE_UTF_8_ENCODING)
+#define switch_xml_tohtml(xml, prn_header) switch_xml_tohtml_ex(xml, prn_header, USE_UTF_8_ENCODING)
+
+SWITCH_DECLARE(char *) switch_xml_toxml_ex(_In_ switch_xml_t xml, _In_ switch_bool_t prn_header, switch_bool_t use_utf8_encoding);
+SWITCH_DECLARE(char *) switch_xml_toxml_nolock_ex(switch_xml_t xml, _In_ switch_bool_t prn_header, switch_bool_t use_utf8_encoding);
+SWITCH_DECLARE(char *) switch_xml_tohtml_ex(_In_ switch_xml_t xml, _In_ switch_bool_t prn_header, switch_bool_t use_utf8_encoding);
 
 ///\brief Converts an switch_xml structure back to xml using the buffer passed in the parameters.
 ///\param xml the xml node
@@ -223,9 +235,12 @@ SWITCH_DECLARE(char *) switch_xml_tohtml(_In_ switch_xml_t xml, _In_ switch_bool
 ///\param buflen size of buffer
 ///\param offset offset to start at
 ///\param prn_header add <?xml version..> header too
+///\param use_utf8_encoding encoding into ampersand entities for UTF-8 chars
 ///\return the xml text string
-SWITCH_DECLARE(char *) switch_xml_toxml_buf(_In_ switch_xml_t xml, _In_z_ char *buf, _In_ switch_size_t buflen, _In_ switch_size_t offset,
-											_In_ switch_bool_t prn_header);
+#define switch_xml_toxml_buf(xml, buf, buflen, offset, prn_header) switch_xml_toxml_buf_ex(xml, buf, buflen, offset, prn_header, USE_UTF_8_ENCODING);
+SWITCH_DECLARE(char *) switch_xml_toxml_buf_ex(_In_ switch_xml_t xml, _In_z_ char *buf, _In_ switch_size_t buflen, _In_ switch_size_t offset,
+											_In_ switch_bool_t prn_header, switch_bool_t use_utf8_encoding);
+
 
 ///\brief returns a NULL terminated array of processing instructions for the given
 ///\ target
@@ -266,8 +281,7 @@ SWITCH_DECLARE(switch_xml_t) switch_xml_add_child(_In_ switch_xml_t xml, _In_z_ 
 ///\param xml the xml node
 ///\param name the name of the child
 ///\param off the offset
-#define switch_xml_add_child_d(xml, name, off) \
-    switch_xml_set_flag(switch_xml_add_child(xml, strdup(name), off), SWITCH_XML_NAMEM)
+SWITCH_DECLARE(switch_xml_t) switch_xml_add_child_d(_In_ switch_xml_t xml, _In_z_ const char *name, _In_ switch_size_t off);
 
 ///\brief sets the character content for the given tag and returns the tag
 ///\param xml the xml node
@@ -280,8 +294,7 @@ SWITCH_DECLARE(switch_xml_t) switch_xml_set_txt(switch_xml_t xml, const char *tx
 ///\param xml the xml node
 ///\param txt the text
 ///\return an xml node or NULL
-#define switch_xml_set_txt_d(xml, txt) \
-    switch_xml_set_flag(switch_xml_set_txt(xml, strdup(txt)), SWITCH_XML_TXTM)
+SWITCH_DECLARE(switch_xml_t) switch_xml_set_txt_d(switch_xml_t xml, const char *txt);
 
 ///\brief Sets the given tag attribute or adds a new attribute if not found. A value
 ///\ of NULL will remove the specified attribute.
@@ -296,11 +309,14 @@ SWITCH_DECLARE(switch_xml_t) switch_xml_set_attr(switch_xml_t xml, const char *n
 ///\param name the attribute name
 ///\param value the attribute value
 ///\return an xml node or NULL
-#define switch_xml_set_attr_d(xml, name, value) \
-    switch_xml_set_attr(switch_xml_set_flag(xml, SWITCH_XML_DUP), strdup(name), strdup(switch_str_nil(value)))
+SWITCH_DECLARE(switch_xml_t) switch_xml_set_attr_d(switch_xml_t xml, const char *name, const char *value);
 
-#define switch_xml_set_attr_d_buf(xml, name, value) \
-    switch_xml_set_attr(switch_xml_set_flag(xml, SWITCH_XML_DUP), strdup(name), strdup(value))
+///\brief Wrapper for switch_xml_set_attr() that strdup()s name/value. Value cannot be NULL
+///\param xml the xml node
+///\param name the attribute name
+///\param value the attribute value
+///\return an xml node or NULL
+SWITCH_DECLARE(switch_xml_t) switch_xml_set_attr_d_buf(switch_xml_t xml, const char *name, const char *value);
 
 ///\brief sets a flag for the given tag and returns the tag
 ///\param xml the xml node

@@ -27,9 +27,6 @@
 /applications/mod_translate/Makefile
 /applications/mod_valet_parking/Makefile
 /applications/mod_voicemail/Makefile
-/asr_tts/mod_unimrcp/Makefile
-/asr_tts/mod_unimrcp/Makefile.in
-/asr_tts/mod_unimrcp/mod_unimrcp.log
 /asr_tts/mod_flite/*/*/mod_flite_manifest.rc
 /codecs/mod_b64/Makefile
 /codecs/mod_skel_codec/Makefile
@@ -81,3 +78,13 @@ codecs/mod_g723_1/Win32/
 codecs/mod_g729/Win32/
 directories/mod_ldap/Win32/
 languages/mod_managed/Win32/
+/applications/mod_av/test/Makefile
+/applications/mod_av/test/Makefile.in
+/event_handlers/mod_rayo/test/Makefile
+/event_handlers/mod_rayo/test/Makefile.in
+/applications/mod_av/test/test_avformat
+/applications/mod_av/test/test_mod_av
+/languages/mod_lua/test/Makefile
+/languages/mod_lua/test/Makefile.in
+/languages/mod_lua/test/test_mod_lua
+					

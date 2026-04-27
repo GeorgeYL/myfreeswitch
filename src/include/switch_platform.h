@@ -111,10 +111,6 @@ typedef int gid_t;
 #include <io.h>
 #define strcasecmp(s1, s2) stricmp(s1, s2)
 #define strncasecmp(s1, s2, n) strnicmp(s1, s2, n)
-#if _MSC_VER < 1900
-#define snprintf _snprintf
-#endif
-
 #else
 /* packed attribute */
 #if (defined __SUNPRO_CC) || defined(__SUNPRO_C)
@@ -274,7 +270,11 @@ typedef intptr_t switch_ssize_t;
 #if defined(__FreeBSD__) && SIZEOF_VOIDP == 4
 #define TIME_T_FMT "d"
 #else
+#if __USE_TIME_BITS64
+#define TIME_T_FMT SWITCH_INT64_T_FMT
+#else
 #define TIME_T_FMT "ld"
+#endif
 #endif
 #endif
 
@@ -341,7 +341,11 @@ SWITCH_END_EXTERN_C
 #define TRUE (!FALSE)
 #endif
 #ifndef switch_assert
+#ifdef PVS_STUDIO // Mute PVS FALSE ALARM
+#define switch_assert(expr) do {if (!(expr)) {fprintf(stderr, "MEMERR\n"); abort();}} while (0)
+#else
 #define switch_assert(expr) assert(expr)
+#endif
 #endif
 #ifndef __ATTR_SAL
 	/* used for msvc code analysis */

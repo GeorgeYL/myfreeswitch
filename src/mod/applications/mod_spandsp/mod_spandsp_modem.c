@@ -279,11 +279,11 @@ switch_status_t modem_init(modem_t *modem, modem_control_handler_t control_handl
 	modem->stty = ptsname(modem->master);
 	if (modem->stty == NULL) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Fatal error: failed to obtain slave pty filename\n");
-	}
-
-	modem->slave = open(modem->stty, O_RDWR);
-	if (modem->slave < 0) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Fatal error: failed to open slave pty %s\n", modem->stty);
+	} else {
+		modem->slave = open(modem->stty, O_RDWR);
+		if (modem->slave < 0) {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Fatal error: failed to open slave pty %s\n", modem->stty);
+		}
 	}
 #endif
 
@@ -744,8 +744,6 @@ static switch_status_t channel_receive_message(switch_core_session_t *session, s
 	case SWITCH_MESSAGE_INDICATE_RINGING:
 		break;
 	case SWITCH_MESSAGE_INDICATE_BRIDGE:
-		mod_spandsp_indicate_data(session, SWITCH_FALSE, SWITCH_TRUE);
-		break;
 	case SWITCH_MESSAGE_INDICATE_UNBRIDGE:
 		mod_spandsp_indicate_data(session, SWITCH_FALSE, SWITCH_TRUE);
 		break;
@@ -899,9 +897,7 @@ static switch_call_cause_t channel_outgoing_channel(switch_core_session_t *sessi
 
 	fail:
 
-		if (new_session) {
-			switch_core_session_destroy(new_session);
-		}
+		switch_core_session_destroy(new_session);
 
 		if (modem) {
 			modem_set_state(modem, MODEM_STATE_ONHOOK);

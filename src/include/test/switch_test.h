@@ -1,6 +1,6 @@
 /*
  * FreeSWITCH Modular Media Switching Software Library / Soft-Switch Application
- * Copyright (C) 2005-2018, Anthony Minessale II <anthm@freeswitch.org>
+ * Copyright (C) 2005-2019, Anthony Minessale II <anthm@freeswitch.org>
  *
  * Version: MPL 1.1
  *
@@ -66,14 +66,22 @@ static char *fst_getenv_default(const char *env, char *default_value, switch_boo
 /**
  * initialize FS core from optional configuration dir
  */
-static void fst_init_core_and_modload(const char *confdir, const char *basedir, int minimal)
+static switch_status_t fst_init_core_and_modload(const char *confdir, const char *basedir, int minimal, switch_core_flag_t flags)
 {
+	switch_status_t status;
 	const char *err;
+	unsigned long pid = switch_getpid();
 	// Let FreeSWITCH core pick these
 	//SWITCH_GLOBAL_dirs.base_dir = strdup("/usr/local/freeswitch");
 	//SWITCH_GLOBAL_dirs.mod_dir = strdup("/usr/local/freeswitch/mod");
 	//SWITCH_GLOBAL_dirs.lib_dir = strdup("/usr/local/freeswitch/lib");
 	//SWITCH_GLOBAL_dirs.temp_dir = strdup("/tmp");
+
+#ifdef SWITCH_TEST_BASE_DIR_OVERRIDE
+	basedir = SWITCH_TEST_BASE_DIR_OVERRIDE;
+#else
+#define SWITCH_TEST_BASE_DIR_OVERRIDE "."
+#endif
 
 	if (zstr(basedir)) {
 		basedir = ".";
@@ -94,12 +102,12 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
 		SWITCH_GLOBAL_dirs.conf_dir = switch_mprintf("%s%sconf", basedir, SWITCH_PATH_SEPARATOR);
 	}
 
-	SWITCH_GLOBAL_dirs.log_dir = switch_mprintf("%s%s", basedir, SWITCH_PATH_SEPARATOR);
+	SWITCH_GLOBAL_dirs.log_dir = switch_mprintf("%s%s%lu%s", basedir, SWITCH_PATH_SEPARATOR, pid, SWITCH_PATH_SEPARATOR);
 	SWITCH_GLOBAL_dirs.run_dir = switch_mprintf("%s%s", basedir, SWITCH_PATH_SEPARATOR);
 	SWITCH_GLOBAL_dirs.recordings_dir = switch_mprintf("%s%s", basedir, SWITCH_PATH_SEPARATOR);
 	SWITCH_GLOBAL_dirs.sounds_dir = switch_mprintf("%s%s", basedir, SWITCH_PATH_SEPARATOR);
 	SWITCH_GLOBAL_dirs.cache_dir = switch_mprintf("%s%s", basedir, SWITCH_PATH_SEPARATOR);
-	SWITCH_GLOBAL_dirs.db_dir = switch_mprintf("%s%s", basedir, SWITCH_PATH_SEPARATOR);
+	SWITCH_GLOBAL_dirs.db_dir = switch_mprintf("%s%s%lu%s", basedir, SWITCH_PATH_SEPARATOR, pid, SWITCH_PATH_SEPARATOR);
 	SWITCH_GLOBAL_dirs.script_dir = switch_mprintf("%s%s", basedir, SWITCH_PATH_SEPARATOR);
 	SWITCH_GLOBAL_dirs.htdocs_dir = switch_mprintf("%s%s", basedir, SWITCH_PATH_SEPARATOR);
 	SWITCH_GLOBAL_dirs.grammar_dir = switch_mprintf("%s%s", basedir, SWITCH_PATH_SEPARATOR);
@@ -112,12 +120,19 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
 	switch_core_set_globals();
 
 	if (!minimal) {
-		switch_core_init_and_modload(0, SWITCH_TRUE, &err);
+		status = switch_core_init_and_modload(flags, SWITCH_TRUE, &err);
 		switch_sleep(1 * 1000000);
 		switch_core_set_variable("sound_prefix", "." SWITCH_PATH_SEPARATOR);
-	} else {
-		switch_core_init(SCF_MINIMAL, SWITCH_TRUE, &err);
+		if (status != SWITCH_STATUS_SUCCESS && err) {
+			fprintf(stderr, "%s", err);
+		}
+		return status;
 	}
+	status = switch_core_init(SCF_MINIMAL, SWITCH_TRUE, &err);
+	if (status != SWITCH_STATUS_SUCCESS && err) {
+		fprintf(stderr, "%s", err);
+	}
+	return status;
 }
 
 /**
@@ -126,7 +141,7 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
  */
 #define fst_session_park(session) \
 	switch_ivr_park_session(session); \
-	switch_channel_wait_for_state(switch_core_session_get_channel(session), NULL, CS_PARK);
+	switch_channel_wait_for_flag(switch_core_session_get_channel(session), CF_PARK, SWITCH_TRUE, 10000, NULL);
 
 /**
  * check for test requirement - execute teardown on failure
@@ -149,14 +164,34 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
 #define fst_check_int_equals fct_chk_eq_int
 
 /**
- * test strings for equality - continue test execution on failure
+ * test string for equality - continue test execution on failure
  */
 #define fst_check_string_equals fct_chk_eq_str
 
 /**
- * test strings for inequality - continue test execution on failure
+ * test string for inequality - continue test execution on failure
  */
 #define fst_check_string_not_equals fct_chk_neq_str
+
+/**
+ * Test string for matching prefix
+*/
+#define fst_check_string_starts_with fct_chk_startswith_str
+
+/**
+ * Test string for matching suffix
+*/
+#define fst_check_string_ends_with fct_chk_endswith_str
+
+/**
+ * Test string for substring
+ */
+#define fst_check_string_has fct_chk_incl_str
+
+/**
+ * Test string for exclusion of substring
+ */
+#define fst_check_string_does_not_have fct_chk_excl_str
 
 /**
  * Mark reference for time measure
@@ -168,13 +203,13 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
  * Check a test /w error message
  */
 #define fst_xcheck(expr, error_msg) \
-	fct_xchk(expr, error_msg);
+	(fct_xchk(expr, "%s", error_msg))
 
 /**
  * Fail a test
  */
 #define fst_fail(error_msg) \
-	fct_xchk(0, error_msg);
+	(fct_xchk(0, "%s", error_msg))
 
 /**
  * Check duration relative to test start, last marked time, or last check.
@@ -201,7 +236,7 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
 		(actual), \
 		(expected), \
 		(precision) \
-	);
+	)
 
 /**
  * Check if double-precision number is in range
@@ -213,7 +248,7 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
 		(actual), \
 		(expected), \
 		(precision) \
-	);
+	)
 
 /**
  * Run test without loading FS core
@@ -225,9 +260,10 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
 		switch_time_t fst_time_start = 0; \
 		switch_timer_t fst_timer = { 0 }; \
 		switch_memory_pool_t *fst_pool = NULL; \
+		int fst_timer_started = 0; \
 		fst_getenv_default("FST_SUPPRESS_UNUSED_STATIC_WARNING", NULL, SWITCH_FALSE); \
 		if (fst_core) { \
-			fst_init_core_and_modload(NULL, NULL, 0); /* shuts up compiler */ \
+			fst_init_core_and_modload(NULL, NULL, 0, 0); /* shuts up compiler */ \
 		} \
 		{ \
 
@@ -245,15 +281,21 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
  * Define the beginning of a freeswitch core test driver.  Only one per test application allowed.
  * @param confdir directory containing freeswitch.xml configuration
  */
-#define FST_CORE_BEGIN(confdir) \
+#define FST_CORE_EX_BEGIN(confdir, flags) \
 	FCT_BGN() \
 	{ \
-		int fst_core = 2; \
+		int fst_core = 0; \
 		switch_time_t fst_time_start = 0; \
 		switch_timer_t fst_timer = { 0 }; \
 		switch_memory_pool_t *fst_pool = NULL; \
+		int fst_timer_started = 0; \
 		fst_getenv_default("FST_SUPPRESS_UNUSED_STATIC_WARNING", NULL, SWITCH_FALSE); \
-		fst_init_core_and_modload(confdir, NULL, 0); \
+		if (fst_init_core_and_modload(confdir, confdir, 0, flags | SCF_LOG_DISABLE) == SWITCH_STATUS_SUCCESS) { \
+			fst_core = 2; \
+		} else { \
+			fprintf(stderr, "Failed to load FS core\n"); \
+			exit(1); \
+		} \
 		{
 
 
@@ -261,7 +303,7 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
  * Define the end of a freeswitch core test driver.
  */
 #define FST_CORE_END() \
-		/*switch_core_destroy();*/ \
+		switch_core_destroy(); \
 		} \
 		if (fst_time_start) { \
 			/* shut up compiler */ \
@@ -270,18 +312,27 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
 	} \
 	FCT_END()
 
+#define FST_CORE_BEGIN(confdir) FST_CORE_EX_BEGIN(confdir, 0)
+#define FST_CORE_DB_BEGIN(confdir) FST_CORE_EX_BEGIN(confdir, SCF_USE_SQL)
+
 /**
  * Minimal FS core load
  */
-#define FST_MINCORE_BEGIN() \
+#define FST_MINCORE_BEGIN(confdir) \
 	FCT_BGN() \
 	{ \
-		int fst_core = 1; \
+		int fst_core = 0; \
 		switch_time_t fst_time_start = 0; \
 		switch_timer_t fst_timer = { 0 }; \
 		switch_memory_pool_t *fst_pool = NULL; \
+		int fst_timer_started = 0; \
 		fst_getenv_default("FST_SUPPRESS_UNUSED_STATIC_WARNING", NULL, SWITCH_FALSE); \
-		fst_init_core_and_modload(".", NULL, 1); /* minimal load */ \
+		if (fst_init_core_and_modload(confdir, NULL, 1, 0 | SCF_LOG_DISABLE) == SWITCH_STATUS_SUCCESS) { /* minimal load */ \
+			fst_core = 1; \
+		} else { \
+			fprintf(stderr, "Failed to load FS core\n"); \
+			exit(1); \
+		} \
 		{
 
 #define FST_MINCORE_END FST_CORE_END
@@ -306,7 +357,9 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
 		const char *fst_test_module = #modname; \
 		if (fst_core && !zstr(fst_test_module)) { \
 			const char *err; \
-			switch_loadable_module_load_module((char *)"../.libs", (char *)fst_test_module, SWITCH_TRUE, &err); \
+			char path[1024]; \
+			sprintf(path, "%s%s%s", SWITCH_TEST_BASE_DIR_OVERRIDE, SWITCH_PATH_SEPARATOR, "../.libs/"); \
+			switch_loadable_module_load_module((char *)path, (char *)fst_test_module, SWITCH_TRUE, &err); \
 		} \
 		FCT_FIXTURE_SUITE_BGN(suite);
 #endif
@@ -327,7 +380,9 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
 		FCT_FIXTURE_SUITE_END(); \
 		if (!zstr(fst_test_module) && switch_loadable_module_exists(fst_test_module) == SWITCH_STATUS_SUCCESS) { \
 			const char *err; \
-			switch_loadable_module_unload_module((char *)"../.libs", (char *)fst_test_module, SWITCH_FALSE, &err); \
+			char path[1024]; \
+			sprintf(path, "%s%s%s", SWITCH_TEST_BASE_DIR_OVERRIDE, SWITCH_PATH_SEPARATOR, "../.libs/"); \
+			switch_loadable_module_unload_module((char*)path, (char *)fst_test_module, SWITCH_FALSE, &err); \
 		} \
 	}
 #endif
@@ -353,11 +408,9 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
 	FCT_SETUP_BGN() \
 		if (fst_core) { \
 			switch_core_new_memory_pool(&fst_pool); \
-			fst_requires(fst_pool != NULL); \
 			if (fst_core > 1) { \
-				fst_requires(switch_core_timer_init(&fst_timer, "soft", 20, 160, fst_pool) == SWITCH_STATUS_SUCCESS); \
+				fst_timer_started = (switch_core_timer_init(&fst_timer, "soft", 20, 160, fst_pool) == SWITCH_STATUS_SUCCESS); \
 			} \
-			fst_time_mark(); \
 		}
 
 /**
@@ -372,9 +425,9 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
 #define FST_TEARDOWN_BEGIN() \
 	FCT_TEARDOWN_BGN() \
 		if (fst_core) { \
-			switch_core_destroy_memory_pool(&fst_pool); \
+			if (fst_pool) switch_core_destroy_memory_pool(&fst_pool); \
 			if (fst_core > 1) { \
-				switch_core_timer_destroy(&fst_timer); \
+				if (fst_timer_started) switch_core_timer_destroy(&fst_timer); \
 			} \
 		}
 
@@ -392,11 +445,25 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
  */
 #define FST_TEST_BEGIN(name) \
 	FCT_TEST_BGN(name) \
+		if (fst_core) { \
+			switch_log_level_t level = SWITCH_LOG_DEBUG; \
+			switch_core_session_ctl(SCSC_LOGLEVEL, &level); \
+			fst_requires(fst_pool != NULL); \
+			if (fst_core > 1) { \
+				fst_requires(fst_timer_started); \
+			} \
+			fst_time_mark(); \
+		} \
 		if (fst_test_module) { \
 			fst_requires_module(fst_test_module); \
 		}
 
-#define FST_TEST_END FCT_TEST_END
+#define FST_TEST_END \
+	if (fst_core) { \
+		switch_log_level_t level = SWITCH_LOG_DISABLE; \
+		switch_core_session_ctl(SCSC_LOGLEVEL, &level); \
+	} \
+	FCT_TEST_END
 
 
 /**
@@ -417,10 +484,22 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
  *
  * @param name the name of this test
  * @param rate the rate of the channel
+ * @param video_codec the rate of the channel
  */
 
-#define FST_SESSION_BEGIN_RATE(name, rate) \
+#define FST_SESSION_BEGIN_RATE_VIDEO(name, rate, video_codec) \
 	FCT_TEST_BGN(name) \
+	{ \
+		if (fst_core) { \
+			switch_log_level_t level = SWITCH_LOG_DEBUG; \
+			switch_core_session_ctl(SCSC_LOGLEVEL, &level); \
+			fst_requires(fst_pool != NULL); \
+			if (fst_core > 1) { \
+				fst_requires(fst_timer_started); \
+			} \
+			fst_time_mark(); \
+		} \
+	} \
 	{ \
 		switch_core_session_t *fst_session = NULL; \
 		switch_event_t *fst_originate_vars = NULL; \
@@ -435,7 +514,7 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
 		fst_requires(switch_event_create_plain(&fst_originate_vars, SWITCH_EVENT_CHANNEL_DATA) == SWITCH_STATUS_SUCCESS); \
 		switch_event_add_header_string(fst_originate_vars, SWITCH_STACK_BOTTOM, "origination_caller_id_number", "+15551112222"); \
 		switch_event_add_header(fst_originate_vars, SWITCH_STACK_BOTTOM, "rate", "%d", rate); \
-		if (switch_ivr_originate(NULL, &fst_session, &fst_cause, "null/+15553334444", 2, NULL, NULL, NULL, NULL, fst_originate_vars, SOF_NONE, NULL, NULL) == SWITCH_STATUS_SUCCESS && fst_session) { \
+		if (switch_ivr_originate(NULL, &fst_session, &fst_cause, "{null_video_codec=" video_codec "}null/+15553334444", 2, NULL, NULL, NULL, NULL, fst_originate_vars, SOF_NONE, NULL, NULL) == SWITCH_STATUS_SUCCESS && fst_session) { \
 			switch_memory_pool_t *fst_session_pool = switch_core_session_get_pool(fst_session); \
 			switch_channel_t *fst_channel = switch_core_session_get_channel(fst_session); \
 			switch_channel_set_state(fst_channel, CS_SOFT_EXECUTE); \
@@ -443,14 +522,16 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
 			switch_channel_set_variable(fst_channel, "send_silence_when_idle", "-1"); \
 			switch_channel_set_variable(fst_channel, "RECORD_STEREO", "true"); \
 			switch_ivr_record_session(fst_session, (char *)"/tmp/"#name".wav", 0, NULL); \
+			switch_channel_set_variable(fst_channel, "RECORD_STEREO", NULL); \
 			for(;;) {
 
 /**
  * Define a session test in a test suite.  This can be used to test IVR functions.
- * See FST_SESSION_BEGIN_RATE
+ * See FST_SESSION_BEGIN_RATE_VIDEO
  */
 
 #define FST_SESSION_BEGIN(name) FST_SESSION_BEGIN_RATE(name, 8000)
+#define FST_SESSION_BEGIN_RATE(name, rate) FST_SESSION_BEGIN_RATE_VIDEO(name, rate, "")
 
 /* BODY OF TEST CASE HERE */
 
@@ -471,6 +552,10 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
 				fst_session_pool = NULL; \
 			} \
 			switch_core_session_rwunlock(fst_session); \
+			if (fst_core) { \
+				switch_log_level_t level = SWITCH_LOG_DISABLE; \
+				switch_core_session_ctl(SCSC_LOGLEVEL, &level); \
+			} \
 			switch_sleep(1000000); \
 		} \
 	} \
@@ -644,7 +729,7 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
 	fst_requires(fst_core > 1); \
 	fst_requires_module("mod_dptools"); \
 	switch_channel_set_variable(fst_channel, "detect_speech_result", ""); \
-	fst_requires(switch_ivr_displace_session(fst_session, input_filename, 0, "mr") == SWITCH_STATUS_SUCCESS); \
+	fst_requires(switch_ivr_displace_session(fst_session, input_filename, 0, "mrf") == SWITCH_STATUS_SUCCESS); \
 	args = switch_core_session_sprintf(fst_session, "%s detect:%s %s", prompt_filename, recognizer, grammar); \
 	fst_requires(switch_core_session_execute_application(fst_session, "play_and_detect_speech", args) == SWITCH_STATUS_SUCCESS); \
 	fst_asr_result = switch_channel_get_variable(fst_channel, "detect_speech_result"); \
@@ -674,7 +759,7 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
 	char *args = NULL; \
 	fst_asr_result = NULL; \
 	fst_requires(fst_core > 1); \
-	fst_requires(switch_ivr_displace_session(fst_session, input_filename, 0, "mr") == SWITCH_STATUS_SUCCESS); \
+	fst_requires(switch_ivr_displace_session(fst_session, input_filename, 0, "mrf") == SWITCH_STATUS_SUCCESS); \
 	switch_status_t status = switch_ivr_play_and_detect_speech(fst_session, prompt_filename, recognizer, grammar, (char **)&fst_asr_result, 0, input_args); \
 	fst_check(fst_asr_result != NULL); \
 }
@@ -729,11 +814,12 @@ static void fst_init_core_and_modload(const char *confdir, const char *basedir, 
  */
 #define fst_sched_recv_dtmf(when, digits) \
 { \
+	switch_status_t api_result; \
 	switch_stream_handle_t stream = { 0 }; \
 	SWITCH_STANDARD_STREAM(stream); \
 	fst_requires(fst_core > 1); \
 	fst_requires_module("mod_commands"); \
-	switch_status_t api_result = switch_api_execute("sched_api", switch_core_session_sprintf(fst_session, "%s none uuid_recv_dtmf %s %s", when, switch_core_session_get_uuid(fst_session), digits), NULL, &stream); \
+	api_result = switch_api_execute("sched_api", switch_core_session_sprintf(fst_session, "%s none uuid_recv_dtmf %s %s", when, switch_core_session_get_uuid(fst_session), digits), NULL, &stream); \
 	switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(fst_session), SWITCH_LOG_INFO, "Injecting DTMF %s at %s\n", digits, when); \
 	fst_requires(api_result == SWITCH_STATUS_SUCCESS); \
 	switch_safe_free(stream.data); \
@@ -794,7 +880,7 @@ cJSON *varname = NULL; \
 	int fd = open(file, O_RDONLY); \
 	fst_requires(fd >= 0); \
 	fstat(fd, &s); \
-	buf = malloc(s.st_size + 1); \
+	switch_zmalloc(buf, s.st_size + 1); \
 	fst_requires(buf); \
 	size = read(fd, buf, s.st_size); \
 	fst_requires(size == s.st_size); \

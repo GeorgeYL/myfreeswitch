@@ -206,6 +206,7 @@ SWITCH_DECLARE(switch_status_t) switch_event_set_subclass_name(switch_event_t *e
   \return SWITCH_STATUS_SUCCESS if the header was added
 */
 SWITCH_DECLARE(switch_status_t) switch_event_add_header_string(switch_event_t *event, switch_stack_t stack, const char *header_name, const char *data);
+SWITCH_DECLARE(switch_status_t) switch_event_add_header_string_nodup(switch_event_t *event, switch_stack_t stack, const char *header_name, const char *data);
 
 SWITCH_DECLARE(switch_status_t) switch_event_del_header_val(switch_event_t *event, const char *header_name, const char *val);
 #define switch_event_del_header(_e, _h) switch_event_del_header_val(_e, _h, NULL)
@@ -428,8 +429,9 @@ SWITCH_DECLARE(void) switch_json_add_presence_data_cols(switch_event_t *event, c
 SWITCH_DECLARE(void) switch_event_launch_dispatch_threads(uint32_t max);
 
 SWITCH_DECLARE(switch_status_t) switch_event_channel_broadcast(const char *event_channel, cJSON **json, const char *key, switch_event_channel_id_t id);
-SWITCH_DECLARE(uint32_t) switch_event_channel_unbind(const char *event_channel, switch_event_channel_func_t func);
-SWITCH_DECLARE(switch_status_t) switch_event_channel_bind(const char *event_channel, switch_event_channel_func_t func, switch_event_channel_id_t *id);
+SWITCH_DECLARE(switch_status_t) switch_event_channel_deliver(const char *event_channel, cJSON **json, const char *key, switch_event_channel_id_t id);
+SWITCH_DECLARE(uint32_t) switch_event_channel_unbind(const char *event_channel, switch_event_channel_func_t func, void *user_data);
+SWITCH_DECLARE(switch_status_t) switch_event_channel_bind(const char *event_channel, switch_event_channel_func_t func, switch_event_channel_id_t *id, void *user_data);
 
 
 typedef void (*switch_live_array_command_handler_t)(switch_live_array_t *la, const char *cmd, const char *sessid, cJSON *jla, void *user_data);

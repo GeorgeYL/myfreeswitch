@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef TEST_REGISTER_STATE_CHECK_H_
-#define TEST_REGISTER_STATE_CHECK_H_
+#ifndef VPX_TEST_REGISTER_STATE_CHECK_H_
+#define VPX_TEST_REGISTER_STATE_CHECK_H_
 
 #include "third_party/googletest/src/include/gtest/gtest.h"
 #include "./vpx_config.h"
@@ -28,11 +28,13 @@
 //   See platform implementations of RegisterStateCheckXXX for details.
 //
 
-#if defined(_WIN64)
+#if defined(_WIN64) && ARCH_X86_64
 
 #undef NOMINMAX
 #define NOMINMAX
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #include <winnt.h>
 
@@ -111,8 +113,8 @@ class RegisterStateCheck {
     int64_t post_store[8];
     vpx_push_neon(post_store);
     for (int i = 0; i < 8; ++i) {
-      EXPECT_EQ(pre_store_[i], post_store[i]) << "d" << i + 8
-                                              << " has been modified";
+      EXPECT_EQ(pre_store_[i], post_store[i])
+          << "d" << i + 8 << " has been modified";
     }
   }
 
@@ -136,7 +138,7 @@ class RegisterStateCheck {};
 
 }  // namespace libvpx_test
 
-#endif  // _WIN64
+#endif  // _WIN64 && ARCH_X86_64
 
 #if ARCH_X86 || ARCH_X86_64
 #if defined(__GNUC__)
@@ -182,4 +184,4 @@ class RegisterStateCheckMMX {
 #define API_REGISTER_STATE_CHECK ASM_REGISTER_STATE_CHECK
 #endif
 
-#endif  // TEST_REGISTER_STATE_CHECK_H_
+#endif  // VPX_TEST_REGISTER_STATE_CHECK_H_

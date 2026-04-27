@@ -231,11 +231,9 @@ static switch_status_t rtc_receive_message(switch_core_session_t *session, switc
 {
 	switch_channel_t *channel = switch_core_session_get_channel(session);
 	private_object_t *tech_pvt = switch_core_session_get_private(session);
-	switch_status_t status = SWITCH_STATUS_SUCCESS;
 	const char *var;
 
 	if (switch_channel_down(channel) || !tech_pvt) {
-		status = SWITCH_STATUS_FALSE;
 		return SWITCH_STATUS_FALSE;
 	}
 
@@ -260,7 +258,7 @@ static switch_status_t rtc_receive_message(switch_core_session_t *session, switc
 	}
 
 
-	return status;
+	return SWITCH_STATUS_SUCCESS;
 
 }
 
@@ -404,11 +402,6 @@ static switch_call_cause_t rtc_outgoing_channel(switch_core_session_t *session, 
 	goto done;
 
   error:
-
-	if (nsession) {
-		switch_core_session_destroy(&nsession);
-	}
-
 	if (pool) {
 		*pool = NULL;
 	}

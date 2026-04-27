@@ -7,8 +7,10 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#ifndef TEST_CODEC_FACTORY_H_
-#define TEST_CODEC_FACTORY_H_
+#ifndef VPX_TEST_CODEC_FACTORY_H_
+#define VPX_TEST_CODEC_FACTORY_H_
+
+#include <tuple>
 
 #include "./vpx_config.h"
 #include "vpx/vpx_decoder.h"
@@ -53,17 +55,22 @@ class CodecFactory {
 template <class T1>
 class CodecTestWithParam
     : public ::testing::TestWithParam<
-          std::tr1::tuple<const libvpx_test::CodecFactory *, T1> > {};
+          std::tuple<const libvpx_test::CodecFactory *, T1> > {};
 
 template <class T1, class T2>
 class CodecTestWith2Params
     : public ::testing::TestWithParam<
-          std::tr1::tuple<const libvpx_test::CodecFactory *, T1, T2> > {};
+          std::tuple<const libvpx_test::CodecFactory *, T1, T2> > {};
 
 template <class T1, class T2, class T3>
 class CodecTestWith3Params
     : public ::testing::TestWithParam<
-          std::tr1::tuple<const libvpx_test::CodecFactory *, T1, T2, T3> > {};
+          std::tuple<const libvpx_test::CodecFactory *, T1, T2, T3> > {};
+
+template <class T1, class T2, class T3, class T4>
+class CodecTestWith4Params
+    : public ::testing::TestWithParam<
+          std::tuple<const libvpx_test::CodecFactory *, T1, T2, T3, T4> > {};
 
 /*
  * VP8 Codec Definitions
@@ -115,6 +122,8 @@ class VP8CodecFactory : public CodecFactory {
 #if CONFIG_VP8_DECODER
     return new VP8Decoder(cfg, flags);
 #else
+    (void)cfg;
+    (void)flags;
     return NULL;
 #endif
   }
@@ -126,6 +135,10 @@ class VP8CodecFactory : public CodecFactory {
 #if CONFIG_VP8_ENCODER
     return new VP8Encoder(cfg, deadline, init_flags, stats);
 #else
+    (void)cfg;
+    (void)deadline;
+    (void)init_flags;
+    (void)stats;
     return NULL;
 #endif
   }
@@ -135,6 +148,8 @@ class VP8CodecFactory : public CodecFactory {
 #if CONFIG_VP8_ENCODER
     return vpx_codec_enc_config_default(&vpx_codec_vp8_cx_algo, cfg, usage);
 #else
+    (void)cfg;
+    (void)usage;
     return VPX_CODEC_INCAPABLE;
 #endif
   }
@@ -203,6 +218,8 @@ class VP9CodecFactory : public CodecFactory {
 #if CONFIG_VP9_DECODER
     return new VP9Decoder(cfg, flags);
 #else
+    (void)cfg;
+    (void)flags;
     return NULL;
 #endif
   }
@@ -214,6 +231,10 @@ class VP9CodecFactory : public CodecFactory {
 #if CONFIG_VP9_ENCODER
     return new VP9Encoder(cfg, deadline, init_flags, stats);
 #else
+    (void)cfg;
+    (void)deadline;
+    (void)init_flags;
+    (void)stats;
     return NULL;
 #endif
   }
@@ -223,6 +244,8 @@ class VP9CodecFactory : public CodecFactory {
 #if CONFIG_VP9_ENCODER
     return vpx_codec_enc_config_default(&vpx_codec_vp9_cx_algo, cfg, usage);
 #else
+    (void)cfg;
+    (void)usage;
     return VPX_CODEC_INCAPABLE;
 #endif
   }
@@ -242,4 +265,4 @@ const libvpx_test::VP9CodecFactory kVP9;
 #endif  // CONFIG_VP9
 
 }  // namespace libvpx_test
-#endif  // TEST_CODEC_FACTORY_H_
+#endif  // VPX_TEST_CODEC_FACTORY_H_

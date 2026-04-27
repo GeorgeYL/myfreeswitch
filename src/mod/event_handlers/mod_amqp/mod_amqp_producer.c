@@ -186,7 +186,8 @@ switch_status_t mod_amqp_producer_create(char *name, switch_xml_t cfg)
 	profile->name = switch_core_strdup(profile->pool, name);
 	profile->running = 1;
 	memset(profile->format_fields, 0, (MAX_ROUTING_KEY_FORMAT_FIELDS + 1) * sizeof(mod_amqp_keypart_t));
-	profile->event_ids[0] = SWITCH_EVENT_ALL;
+	profile->events[0].id = SWITCH_EVENT_ALL;
+	profile->events[0].subclass = SWITCH_EVENT_SUBCLASS_ANY;
 	profile->event_subscriptions = 1;
 	profile->conn_root   = NULL;
 	profile->conn_active = NULL;
@@ -269,7 +270,14 @@ switch_status_t mod_amqp_producer_create(char *name, switch_xml_t cfg)
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Found %d subscriptions\n", profile->event_subscriptions);
 
 				for (arg = 0; arg < profile->event_subscriptions; arg++) {
-					if (switch_name_event(argv[arg], &(profile->event_ids[arg])) != SWITCH_STATUS_SUCCESS) {
+					char *subclass = SWITCH_EVENT_SUBCLASS_ANY;
+					if ((subclass = strchr(argv[arg], '^'))) {
+						*subclass++ = '\0';
+					}
+
+					if (switch_name_event(argv[arg], &(profile->events[arg].id)) == SWITCH_STATUS_SUCCESS) {
+						profile->events[arg].subclass = subclass;
+					} else {
 						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "The switch event %s was not recognised.\n", argv[arg]);
 					}
 				}
@@ -325,33 +333,7 @@ switch_status_t mod_amqp_producer_create(char *name, switch_xml_t cfg)
 		}
 	}
 	profile->conn_active = NULL;
-
-	if ( mod_amqp_connection_open(profile->conn_root, &(profile->conn_active), profile->name, profile->custom_attr) != SWITCH_STATUS_SUCCESS) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Profile[%s] was unable to connect to any connection\n", profile->name);
-		goto err;
-	}
-#if AMQP_VERSION_MAJOR == 0 && AMQP_VERSION_MINOR >= 6
-	amqp_exchange_declare(profile->conn_active->state, 1,
-						  amqp_cstring_bytes(profile->exchange),
-						  amqp_cstring_bytes(profile->exchange_type),
-						  0, /* passive */
-						  profile->exchange_durable,
-						  profile->exchange_auto_delete,
-						  0,
-						  amqp_empty_table);
-#else
-	amqp_exchange_declare(profile->conn_active->state, 1,
-						  amqp_cstring_bytes(profile->exchange),
-						  amqp_cstring_bytes(profile->exchange_type),
-						  0, /* passive */
-						  profile->exchange_durable,
-						  amqp_empty_table);
-#endif
-
-	if (mod_amqp_log_if_amqp_error(amqp_get_rpc_reply(profile->conn_active->state), "Declaring exchange\n")) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Profile[%s] failed to create exchange\n", profile->name);
-		goto err;
-	}
+	/* We are not going to open the producer queue connection on create, but instead wait for the running thread to open it */
 
 	/* Create a bounded FIFO queue for sending messages */
 	if (switch_queue_create(&(profile->send_queue), profile->send_queue_size, profile->pool) != SWITCH_STATUS_SUCCESS) {
@@ -370,13 +352,13 @@ switch_status_t mod_amqp_producer_create(char *name, switch_xml_t cfg)
 	/* Subscribe events */
 	for (i = 0; i < profile->event_subscriptions; i++) {
 		if (switch_event_bind_removable("AMQP",
-										profile->event_ids[i],
-										SWITCH_EVENT_SUBCLASS_ANY,
+										profile->events[i].id,
+										profile->events[i].subclass,
 										mod_amqp_producer_event_handler,
 										profile,
 										&(profile->event_nodes[i])) != SWITCH_STATUS_SUCCESS) {
 
-			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Cannot bind to event handler %d!\n",(int)profile->event_ids[i]);
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Cannot bind to event handler %d!\n",(int)profile->events[i].id);
 			goto err;
 		}
 	}

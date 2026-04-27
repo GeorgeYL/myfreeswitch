@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -23,29 +23,29 @@
     <ProjectGuid>{B6E22500-3DB6-4E6E-8CD5-591B781D7D99}</ProjectGuid>
     <RootNamespace>libyuv</RootNamespace>
     <Keyword>Win32Proj</Keyword>
-    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='release|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
     <CharacterSet>MultiByte</CharacterSet>
     <WholeProgramOptimization>false</WholeProgramOptimization>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='debug|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='release|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
     <CharacterSet>MultiByte</CharacterSet>
     <WholeProgramOptimization>false</WholeProgramOptimization>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='debug|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
@@ -133,6 +133,8 @@
     <ClCompile Include="..\..\libyuv\source\compare.cc" />
     <ClCompile Include="..\..\libyuv\source\compare_common.cc" />
     <ClCompile Include="..\..\libyuv\source\compare_gcc.cc" />
+    <ClCompile Include="..\..\libyuv\source\compare_mmi.cc" />
+    <ClCompile Include="..\..\libyuv\source\compare_msa.cc" />
     <ClCompile Include="..\..\libyuv\source\compare_neon.cc" />
     <ClCompile Include="..\..\libyuv\source\compare_neon64.cc" />
     <ClCompile Include="..\..\libyuv\source\compare_win.cc" />
@@ -152,14 +154,15 @@
     <ClCompile Include="..\..\libyuv\source\rotate_argb.cc" />
     <ClCompile Include="..\..\libyuv\source\rotate_common.cc" />
     <ClCompile Include="..\..\libyuv\source\rotate_gcc.cc" />
-    <ClCompile Include="..\..\libyuv\source\rotate_mips.cc" />
+    <ClCompile Include="..\..\libyuv\source\rotate_mmi.cc" />
+    <ClCompile Include="..\..\libyuv\source\rotate_msa.cc" />
     <ClCompile Include="..\..\libyuv\source\rotate_neon.cc" />
     <ClCompile Include="..\..\libyuv\source\rotate_neon64.cc" />
     <ClCompile Include="..\..\libyuv\source\rotate_win.cc" />
     <ClCompile Include="..\..\libyuv\source\row_any.cc" />
     <ClCompile Include="..\..\libyuv\source\row_common.cc" />
     <ClCompile Include="..\..\libyuv\source\row_gcc.cc" />
-    <ClCompile Include="..\..\libyuv\source\row_mips.cc" />
+    <ClCompile Include="..\..\libyuv\source\row_mmi.cc" />
     <ClCompile Include="..\..\libyuv\source\row_msa.cc" />
     <ClCompile Include="..\..\libyuv\source\row_neon.cc" />
     <ClCompile Include="..\..\libyuv\source\row_neon64.cc" />
@@ -168,7 +171,8 @@
     <ClCompile Include="..\..\libyuv\source\scale_any.cc" />
     <ClCompile Include="..\..\libyuv\source\scale_argb.cc" />
     <ClCompile Include="..\..\libyuv\source\scale_common.cc" />
-    <ClCompile Include="..\..\libyuv\source\scale_mips.cc" />
+    <ClCompile Include="..\..\libyuv\source\scale_mmi.cc" />
+    <ClCompile Include="..\..\libyuv\source\scale_msa.cc" />
     <ClCompile Include="..\..\libyuv\source\scale_neon.cc" />
     <ClCompile Include="..\..\libyuv\source\scale_neon64.cc" />
     <ClCompile Include="..\..\libyuv\source\scale_win.cc" />

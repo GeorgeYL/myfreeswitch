@@ -1,6 +1,6 @@
 /*
  * FreeSWITCH Modular Media Switching Software Library / Soft-Switch Application
- * Copyright (C) 2005-2014, Anthony Minessale II <anthm@freeswitch.org>
+ * Copyright (C) 2005-2019, Anthony Minessale II <anthm@freeswitch.org>
  *
  * Version: MPL 1.1
  *
@@ -251,7 +251,17 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_phrase_macro_event(switch_core_sessio
 								  module_name);
 
 				if (!strcasecmp(func, "play-file")) {
-					status = switch_ivr_play_file(session, NULL, odata, args);
+					char *volume_str = (char *) switch_xml_attr_soft(action, "volume");
+					switch_file_handle_t pfh = { 0 };
+					if (volume_str && switch_is_number(volume_str)) {
+						int32_t volume = atoi(volume_str);
+
+						switch_normalize_volume_granular(volume)
+						pfh.volgranular = volume;
+
+						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Setting playback volume to %d\n", pfh.volgranular);
+					}
+					status = switch_ivr_play_file(session, &pfh, odata, args);
 				} else if (!strcasecmp(func, "phrase")) {
 					char *name = (char *) switch_xml_attr_soft(action, "phrase");
 					status = switch_ivr_phrase_macro(session, name, odata, chan_lang, args);
@@ -353,8 +363,46 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_phrase_macro_event(switch_core_sessio
 	return status;
 }
 
-SWITCH_DECLARE(switch_status_t) switch_ivr_record_file(switch_core_session_t *session,
-													   switch_file_handle_t *fh, const char *file, switch_input_args_t *args, uint32_t limit)
+static void merge_recording_variables(switch_event_t *vars, switch_event_t *event)
+{
+	switch_event_header_t *hi;
+	if (vars) {
+		for (hi = vars->headers; hi; hi = hi->next) {
+			char buf[1024];
+			char *vvar = NULL, *vval = NULL;
+
+			vvar = (char *) hi->name;
+			vval = (char *) hi->value;
+
+			switch_assert(vvar && vval);
+			switch_snprintf(buf, sizeof(buf), "Recording-Variable-%s", vvar);
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, buf, vval);
+		}
+	}
+}
+
+static const char *get_recording_var(switch_channel_t *channel, switch_event_t *vars, switch_file_handle_t *fh, const char *name)
+{
+	const char *val = NULL;
+	if (vars) {
+		val = switch_event_get_header(vars, name);
+	}
+	if (!val && fh && fh->params) {
+		val = switch_event_get_header(fh->params, name);
+	}
+	if (!val) {
+		val = switch_channel_get_variable(channel, name);
+	}
+	return val;
+}
+
+static int recording_var_true(switch_channel_t *channel, switch_event_t *vars, switch_file_handle_t *fh, const char *name)
+{
+	return switch_true(get_recording_var(channel, vars, fh, name));
+}
+
+SWITCH_DECLARE(switch_status_t) switch_ivr_record_file_event(switch_core_session_t *session,
+													   switch_file_handle_t *fh, const char *file, switch_input_args_t *args, uint32_t limit, switch_event_t *vars)
 {
 	switch_channel_t *channel = switch_core_session_get_channel(session);
 	switch_dtmf_t dtmf = { 0 };
@@ -394,7 +442,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_file(switch_core_session_t *se
 		return SWITCH_STATUS_FALSE;
 	}
 
-	prefix = switch_channel_get_variable(channel, "sound_prefix");
+	prefix = get_recording_var(channel, vars, fh, "sound_prefix");
 
 	if (!prefix) {
 		prefix = SWITCH_GLOBAL_dirs.sounds_dir;
@@ -425,7 +473,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_file(switch_core_session_t *se
 	}
 
 
-	if ((p = switch_channel_get_variable(channel, "record_sample_rate"))) {
+	if ((p = get_recording_var(channel, vars, fh, "record_sample_rate"))) {
 		int tmp = 0;
 
 		tmp = atoi(p);
@@ -476,16 +524,16 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_file(switch_core_session_t *se
 	}
 
 
-	vval = switch_channel_get_variable(channel, "enable_file_write_buffering");
+	vval = get_recording_var(channel, vars, fh, "enable_file_write_buffering");
 	if (!vval || switch_true(vval)) {
 		fh->pre_buffer_datalen = SWITCH_DEFAULT_FILE_BUFFER_LEN;
 	}
 
-	if (switch_test_flag(fh, SWITCH_FILE_WRITE_APPEND) || ((p = switch_channel_get_variable(channel, "RECORD_APPEND")) && switch_true(p))) {
+	if (switch_test_flag(fh, SWITCH_FILE_WRITE_APPEND) || recording_var_true(channel, vars, fh, "RECORD_APPEND")) {
 		file_flags |= SWITCH_FILE_WRITE_APPEND;
 	}
 
-	if (switch_test_flag(fh, SWITCH_FILE_WRITE_OVER) || ((p = switch_channel_get_variable(channel, "RECORD_WRITE_OVER")) && switch_true(p))) {
+	if (switch_test_flag(fh, SWITCH_FILE_WRITE_OVER) || recording_var_true(channel, vars, fh, "RECORD_WRITE_OVER")) {
 		file_flags |= SWITCH_FILE_WRITE_OVER;
 	}
 
@@ -520,7 +568,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_file(switch_core_session_t *se
 	}
 
 
-	if ((p = switch_channel_get_variable(channel, "record_fill_cng")) || (fh->params && (p = switch_event_get_header(fh->params, "record_fill_cng")))) {
+	if ((p = get_recording_var(channel, vars, fh, "record_fill_cng"))) {
 		if (!strcasecmp(p, "true")) {
 			fill_cng = 1400;
 		} else {
@@ -542,8 +590,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_file(switch_core_session_t *se
 		}
 	}
 
-	if ((p = switch_channel_get_variable(channel, "record_waste_resources")) ||
-		(fh->params && (p = switch_event_get_header(fh->params, "record_waste_resources")))) {
+	if ((p = get_recording_var(channel, vars, fh,  "record_waste_resources"))) {
 
 		if (!strcasecmp(p, "true")) {
 			waste_resources = 1400;
@@ -581,9 +628,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_file(switch_core_session_t *se
 	if (switch_core_file_has_video(fh, SWITCH_TRUE)) {
 		switch_core_session_request_video_refresh(session);
 
-		if ((p = switch_channel_get_variable(channel, "record_play_video")) ||
-
-			(fh->params && (p = switch_event_get_header(fh->params, "record_play_video")))) {
+		if ((p = get_recording_var(channel, vars, fh, "record_play_video"))) {
 
 			video_file = switch_core_session_strdup(session, p);
 
@@ -626,39 +671,39 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_file(switch_core_session_t *se
 		asis = 1;
 	}
 
-	restart_limit_on_dtmf = switch_true(switch_channel_get_variable(channel, "record_restart_limit_on_dtmf"));
+	restart_limit_on_dtmf = recording_var_true(channel, vars, fh, "record_restart_limit_on_dtmf");
 
-	if ((p = switch_channel_get_variable(channel, "record_title")) || (fh->params && (p = switch_event_get_header(fh->params, "record_title")))) {
+	if ((p = get_recording_var(channel, vars, fh,  "record_title"))) {
 		vval = switch_core_session_strdup(session, p);
 		switch_core_file_set_string(fh, SWITCH_AUDIO_COL_STR_TITLE, vval);
 		switch_channel_set_variable(channel, "record_title", NULL);
 	}
 
-	if ((p = switch_channel_get_variable(channel, "record_copyright")) || (fh->params && (p = switch_event_get_header(fh->params, "record_copyright")))) {
+	if ((p = get_recording_var(channel, vars, fh, "record_copyright"))) {
 		vval = switch_core_session_strdup(session, p);
 		switch_core_file_set_string(fh, SWITCH_AUDIO_COL_STR_COPYRIGHT, vval);
 		switch_channel_set_variable(channel, "record_copyright", NULL);
 	}
 
-	if ((p = switch_channel_get_variable(channel, "record_software")) || (fh->params && (p = switch_event_get_header(fh->params, "record_software")))) {
+	if ((p = get_recording_var(channel, vars, fh, "record_software"))) {
 		vval = switch_core_session_strdup(session, p);
 		switch_core_file_set_string(fh, SWITCH_AUDIO_COL_STR_SOFTWARE, vval);
 		switch_channel_set_variable(channel, "record_software", NULL);
 	}
 
-	if ((p = switch_channel_get_variable(channel, "record_artist")) || (fh->params && (p = switch_event_get_header(fh->params, "record_artist")))) {
+	if ((p = get_recording_var(channel, vars, fh,  "record_artist"))) {
 		vval = switch_core_session_strdup(session, p);
 		switch_core_file_set_string(fh, SWITCH_AUDIO_COL_STR_ARTIST, vval);
 		switch_channel_set_variable(channel, "record_artist", NULL);
 	}
 
-	if ((p = switch_channel_get_variable(channel, "record_comment")) || (fh->params && (p = switch_event_get_header(fh->params, "record_comment")))) {
+	if ((p = get_recording_var(channel, vars, fh, "record_comment"))) {
 		vval = switch_core_session_strdup(session, p);
 		switch_core_file_set_string(fh, SWITCH_AUDIO_COL_STR_COMMENT, vval);
 		switch_channel_set_variable(channel, "record_comment", NULL);
 	}
 
-	if ((p = switch_channel_get_variable(channel, "record_date")) || (fh->params && (p = switch_event_get_header(fh->params, "record_date")))) {
+	if ((p = get_recording_var(channel, vars, fh, "record_date"))) {
 		vval = switch_core_session_strdup(session, p);
 		switch_core_file_set_string(fh, SWITCH_AUDIO_COL_STR_DATE, vval);
 		switch_channel_set_variable(channel, "record_date", NULL);
@@ -688,7 +733,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_file(switch_core_session_t *se
 				if (echo_on) {
 					switch_channel_clear_flag(channel, CF_VIDEO_ECHO);
 					switch_channel_clear_flag_recursive(channel, CF_VIDEO_DECODED_READ);
-					echo_on = 0;
 				}
 				switch_core_media_set_video_file(session, NULL, SWITCH_RW_READ);
 				switch_core_media_set_video_file(session, NULL, SWITCH_RW_WRITE);
@@ -723,7 +767,17 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_file(switch_core_session_t *se
 	if (switch_event_create(&event, SWITCH_EVENT_RECORD_START) == SWITCH_STATUS_SUCCESS) {
 		switch_channel_event_set_data(channel, event);
 		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Record-File-Path", file);
+		merge_recording_variables(vars, event);
 		switch_event_fire(&event);
+	}
+
+	{
+		const char *app_exec = NULL;
+		if (vars && (app_exec = switch_event_get_header(vars, "execute_on_record_start"))) {
+			switch_channel_execute_on_value(channel, app_exec);
+		}
+		switch_channel_execute_on(channel, "execute_on_record_start");
+		switch_channel_api_on(channel, "api_on_record_start");
 	}
 
 	for (;;) {
@@ -918,7 +972,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_file(switch_core_session_t *se
 		if (echo_on) {
 			switch_channel_clear_flag(channel, CF_VIDEO_ECHO);
 			switch_channel_clear_flag_recursive(channel, CF_VIDEO_DECODED_READ);
-			echo_on = 0;
 		}
 		switch_core_media_set_video_file(session, NULL, SWITCH_RW_READ);
 		switch_core_media_set_video_file(session, NULL, SWITCH_RW_WRITE);
@@ -929,9 +982,18 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_file(switch_core_session_t *se
 	switch_core_file_get_string(fh, SWITCH_AUDIO_COL_STR_FILE_SIZE, &file_size);
 	switch_core_file_get_string(fh, SWITCH_AUDIO_COL_STR_FILE_TRIMMED, &file_trimmed);
 	switch_core_file_get_string(fh, SWITCH_AUDIO_COL_STR_FILE_TRIMMED_MS, &file_trimmed_ms);
-	if (file_trimmed_ms) switch_channel_set_variable(channel, "record_record_trimmed_ms", file_trimmed_ms);
-	if (file_size) switch_channel_set_variable(channel, "record_record_file_size", file_size);
-	if (file_trimmed) switch_channel_set_variable(channel, "record_record_trimmed", file_trimmed);
+	if (file_trimmed_ms) {
+		switch_channel_set_variable(channel, "record_record_trimmed_ms", file_trimmed_ms);
+		switch_channel_set_variable(channel, "record_trimmed_ms", file_trimmed_ms);
+	}
+	if (file_size) {
+		switch_channel_set_variable(channel, "record_record_file_size", file_size);
+		switch_channel_set_variable(channel, "record_file_size", file_size);
+	}
+	if (file_trimmed) {
+		switch_channel_set_variable(channel, "record_record_trimmed", file_trimmed);
+		switch_channel_set_variable(channel, "record_trimmed", file_trimmed);
+	}
 	switch_core_file_close(fh);
 
 
@@ -968,13 +1030,29 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_file(switch_core_session_t *se
 	if (switch_event_create(&event, SWITCH_EVENT_RECORD_STOP) == SWITCH_STATUS_SUCCESS) {
 		switch_channel_event_set_data(channel, event);
 		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Record-File-Path", file);
+		merge_recording_variables(vars, event);
 		switch_event_fire(&event);
+	}
+
+	{
+		const char *app_exec = NULL;
+		if (vars && (app_exec = switch_event_get_header(vars, "execute_on_record_stop"))) {
+			switch_channel_execute_on_value(channel, app_exec);
+		}
+		switch_channel_execute_on(channel, "execute_on_record_stop");
+		switch_channel_api_on(channel, "api_on_record_stop");
 	}
 
 	switch_core_session_reset(session, SWITCH_TRUE, SWITCH_TRUE);
 
 	arg_recursion_check_stop(args);
 	return status;
+}
+
+SWITCH_DECLARE(switch_status_t) switch_ivr_record_file(switch_core_session_t *session,
+													   switch_file_handle_t *fh, const char *file, switch_input_args_t *args, uint32_t limit)
+{
+	return switch_ivr_record_file_event(session, fh, file, args, limit, NULL);
 }
 
 static int teletone_handler(teletone_generation_session_t *ts, teletone_tone_map_t *map)
@@ -1015,7 +1093,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_gentones(switch_core_session_t *sessi
 							   NULL,
 							   read_impl.actual_samples_per_second,
 							   read_impl.microseconds_per_packet / 1000,
-							   1, SWITCH_CODEC_FLAG_ENCODE | SWITCH_CODEC_FLAG_DECODE,
+							   read_impl.number_of_channels, SWITCH_CODEC_FLAG_ENCODE | SWITCH_CODEC_FLAG_DECODE,
 							   NULL, switch_core_session_get_pool(session)) != SWITCH_STATUS_SUCCESS) {
 
 		return SWITCH_STATUS_FALSE;
@@ -1031,7 +1109,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_gentones(switch_core_session_t *sessi
 	switch_buffer_create_dynamic(&audio_buffer, 512, 1024, 0);
 	teletone_init_session(&ts, 0, teletone_handler, audio_buffer);
 	ts.rate = read_impl.actual_samples_per_second;
-	ts.channels = 1;
+	ts.channels = read_impl.number_of_channels;
 	teletone_run(&ts, script);
 
 	if (loops) {
@@ -1042,13 +1120,11 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_gentones(switch_core_session_t *sessi
 		switch_status_t status;
 
 		if (!switch_channel_ready(channel)) {
-			status = SWITCH_STATUS_FALSE;
 			break;
 		}
 
 		if (switch_channel_test_flag(channel, CF_BREAK)) {
 			switch_channel_clear_flag(channel, CF_BREAK);
-			status = SWITCH_STATUS_BREAK;
 			break;
 		}
 
@@ -1079,7 +1155,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_gentones(switch_core_session_t *sessi
 			 */
 			if (switch_channel_has_dtmf(channel)) {
 				if (!args->input_callback && !args->buf && !args->dmachine) {
-					status = SWITCH_STATUS_BREAK;
 					break;
 				}
 				switch_channel_dequeue_dtmf(channel, &dtmf);
@@ -1196,7 +1271,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_play_file(switch_core_session_t *sess
 	int sleep_val_i = 250;
 	int eof = 0;
 	switch_size_t bread = 0;
-	int l16 = 0;
 	switch_codec_implementation_t read_impl = { 0 };
 	char *file_dup;
 	char *argv[128] = { 0 };
@@ -1212,6 +1286,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_play_file(switch_core_session_t *sess
 	uint32_t buflen = 0;
 	int flags;
 	int cumulative = 0;
+	int last_speed = -1;
 
 	if (switch_channel_pre_answer(channel) != SWITCH_STATUS_SUCCESS) {
 		return SWITCH_STATUS_FALSE;
@@ -1258,10 +1333,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_play_file(switch_core_session_t *sess
 
 	arg_recursion_check_start(args);
 
-	if (!zstr(read_impl.iananame) && !strcasecmp(read_impl.iananame, "l16")) {
-		l16++;
-	}
-
 	if (play_delimiter) {
 		file_dup = switch_core_session_strdup(session, file);
 		argc = switch_separate_string(file_dup, play_delimiter, argv, (sizeof(argv) / sizeof(argv[0])));
@@ -1299,7 +1370,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_play_file(switch_core_session_t *sess
 
 		status = SWITCH_STATUS_SUCCESS;
 
-		if ((alt = strchr(file, ':'))) {
+		if (strchr(file, ':')) {
 			char *dup;
 
 			if (!strncasecmp(file, "phrase:", 7)) {
@@ -1313,8 +1384,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_play_file(switch_core_session_t *sess
 						*arg++ = '\0';
 					}
 					if ((status = switch_ivr_phrase_macro(session, dup, arg, lang, args)) != SWITCH_STATUS_SUCCESS) {
-						arg_recursion_check_stop(args);
-						return status;
+						break;
 					}
 					continue;
 				} else {
@@ -1331,8 +1401,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_play_file(switch_core_session_t *sess
 
 				if (engine && text) {
 					if ((status = switch_ivr_speak_text(session, engine, voice, (char *)text, args)) != SWITCH_STATUS_SUCCESS) {
-						arg_recursion_check_stop(args);
-						return status;
+						break;
 					}
 				} else {
 					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Invalid Args\n");
@@ -1435,7 +1504,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_play_file(switch_core_session_t *sess
 		}
 
 		if (!abuf) {
-			buflen = write_frame.buflen = FILE_STARTSAMPLES * sizeof(*abuf) * fh->channels;
+			write_frame.buflen = FILE_STARTSAMPLES * sizeof(*abuf) * fh->channels;
 			switch_zmalloc(abuf, write_frame.buflen);
 			write_frame.data = abuf;
 		}
@@ -1478,11 +1547,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_play_file(switch_core_session_t *sess
 		}
 
 		interval = read_impl.microseconds_per_packet / 1000;
-
-		if (!fh->audio_buffer) {
-			switch_buffer_create_dynamic(&fh->audio_buffer, FILE_BLOCKSIZE, FILE_BUFSIZE, 0);
-			switch_assert(fh->audio_buffer);
-		}
 
 		codec_name = "L16";
 
@@ -1594,9 +1658,13 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_play_file(switch_core_session_t *sess
 			switch_event_fire(&event);
 		}
 
+		if (!fh->audio_buffer) {
+			switch_buffer_create_dynamic(&fh->audio_buffer, FILE_BLOCKSIZE, FILE_BUFSIZE, 0);
+			switch_assert(fh->audio_buffer);
+		}
+
 		for (;;) {
 			int do_speed = 1;
-			int last_speed = -1;
 			int f;
 
 			if (!switch_channel_ready(channel)) {
@@ -1736,7 +1804,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_play_file(switch_core_session_t *sess
 				if (test_native != last_native) {
 					if (test_native) {
 						write_frame.codec = switch_core_session_get_read_codec(session);
-						samples = read_impl.samples_per_packet;
 						framelen = read_impl.encoded_bytes_per_packet;
 						if (framelen == 0) {
 							switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "%s cannot play or record native files with variable length data\n", switch_channel_get_name(channel));
@@ -1745,7 +1812,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_play_file(switch_core_session_t *sess
 						}
 					} else {
 						write_frame.codec = &codec;
-						samples = codec.implementation->samples_per_packet;
 						framelen = codec.implementation->decoded_bytes_per_packet;
 					}
 					switch_buffer_zero(fh->audio_buffer);
@@ -1823,7 +1889,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_play_file(switch_core_session_t *sess
 				if (wrote < newlen) {
 					switch_size_t r = newlen - wrote;
 					switch_buffer_write(fh->sp_audio_buffer, bp, r * 2);
-					wrote += r;
 				}
 				last_speed = fh->speed;
 				continue;
@@ -1897,8 +1962,12 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_play_file(switch_core_session_t *sess
 			}
 #endif
 #endif
-			if (!switch_test_flag(fh, SWITCH_FILE_NATIVE) && fh->vol) {
-				switch_change_sln_volume(write_frame.data, write_frame.datalen / 2, fh->vol);
+			if (!switch_test_flag(fh, SWITCH_FILE_NATIVE)) {
+				if (fh->volgranular) {
+					switch_change_sln_volume_granular(write_frame.data, write_frame.datalen / 2, fh->volgranular);
+				} else if (fh->vol) { /* deprecated 2022-Q1 */
+					switch_change_sln_volume(write_frame.data, write_frame.datalen / 2, fh->vol);
+				}
 			}
 
 			/* write silence while dmachine is in reading state */
@@ -2040,6 +2109,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_wait_for_silence(switch_core_session_
 								  file,
 								  read_impl.number_of_channels,
 								  read_impl.actual_samples_per_second, SWITCH_FILE_FLAG_READ | SWITCH_FILE_DATA_SHORT, NULL) != SWITCH_STATUS_SUCCESS) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Failure opening playback file %s.\n", file);
 			switch_core_session_reset(session, SWITCH_TRUE, SWITCH_FALSE);
 			return SWITCH_STATUS_NOTFOUND;
 		}
@@ -2058,6 +2128,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_wait_for_silence(switch_core_session_
 							   1, SWITCH_CODEC_FLAG_ENCODE | SWITCH_CODEC_FLAG_DECODE,
 							   NULL, switch_core_session_get_pool(session)) != SWITCH_STATUS_SUCCESS) {
 
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Failed to initialize L16 codec.\n");
 		status = SWITCH_STATUS_FALSE;
 		goto end;
 	}
@@ -2071,9 +2142,13 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_wait_for_silence(switch_core_session_
 
 	while (switch_channel_ready(channel)) {
 
+		/* reinitialize energy value per loop */
+		energy = 0;
+
 		status = switch_core_session_read_frame(session, &read_frame, SWITCH_IO_FLAG_NONE, 0);
 
 		if (!SWITCH_READ_ACCEPTABLE(status)) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Failed to read frame.\n");
 			break;
 		}
 
@@ -2083,7 +2158,9 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_wait_for_silence(switch_core_session_
 				switch_channel_set_variable(channel, "wait_for_silence_timeout", "true");
 				switch_channel_set_variable_printf(channel, "wait_for_silence_listenhits", "%d", listening);
 				switch_channel_set_variable_printf(channel, "wait_for_silence_silence_hits", "%d", silence_hits);
-				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "switch_ivr_wait_for_silence: TIMEOUT %d\n", countdown);
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
+				  "switch_ivr_wait_for_silence: TIMEOUT after %d ms at %d listen hits, %d silence hits, %d countdown\n",
+				  timeout_ms, listening, (org_silence_hits - silence_hits), countdown);
 				break;
 			}
 		}
@@ -2092,12 +2169,14 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_wait_for_silence(switch_core_session_
 			switch_size_t olen = raw_codec.implementation->samples_per_packet;
 
 			if (switch_core_file_read(&fh, abuf, &olen) != SWITCH_STATUS_SUCCESS) {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Failed to read file %s.\n", file);
 				break;
 			}
 
 			write_frame.samples = (uint32_t) olen;
 			write_frame.datalen = (uint32_t) (olen * sizeof(int16_t) * fh.channels);
 			if ((status = switch_core_session_write_frame(session, &write_frame, SWITCH_IO_FLAG_NONE, 0)) != SWITCH_STATUS_SUCCESS) {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Failed to write frame from file %s.\n", file);
 				break;
 			}
 		}
@@ -2105,6 +2184,8 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_wait_for_silence(switch_core_session_
 		if (countdown) {
 			if (!--countdown) {
 				switch_channel_set_variable(channel, "wait_for_silence_timeout", "false");
+				switch_channel_set_variable_printf(channel, "wait_for_silence_listenhits", "%d", listening);
+				switch_channel_set_variable_printf(channel, "wait_for_silence_silence_hits", "%d", silence_hits);
 				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "switch_ivr_wait_for_silence: SILENCE DETECTED\n");
 				break;
 			} else {
@@ -2114,9 +2195,12 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_wait_for_silence(switch_core_session_
 
 		data = (int16_t *) read_frame->data;
 
-		for (energy = 0, j = 0, count = 0; count < read_frame->samples; count++) {
-			energy += abs(data[j++]);
-			j += channels;
+		/* Need to check if the read_frame is valid before attempting to get "energy" value from it */
+		if (read_frame->seq) {
+			for (energy = 0, j = 0, count = 0; count < read_frame->samples; count++) {
+				energy += abs(data[j++]);
+				j += channels;
+			}
 		}
 
 		score = (uint32_t) (energy / (read_frame->samples / divisor));
@@ -2125,7 +2209,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_wait_for_silence(switch_core_session_
 			listening++;
 		}
 
-		if (listening > listen_hits && score < thresh) {
+		if (((listen_hits == 0) || (listening > listen_hits)) && (score < thresh)) {
 			if (!--silence_hits) {
 				countdown = 25;
 			}
@@ -2177,6 +2261,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_detect_audio(switch_core_session_t *s
 								  file,
 								  read_impl.number_of_channels,
 								  read_impl.actual_samples_per_second, SWITCH_FILE_FLAG_READ | SWITCH_FILE_DATA_SHORT, NULL) != SWITCH_STATUS_SUCCESS) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Failure opening playback file %s.\n", file);
 			switch_core_session_reset(session, SWITCH_TRUE, SWITCH_FALSE);
 			return SWITCH_STATUS_NOTFOUND;
 		}
@@ -2195,6 +2280,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_detect_audio(switch_core_session_t *s
 							   1, SWITCH_CODEC_FLAG_ENCODE | SWITCH_CODEC_FLAG_DECODE,
 							   NULL, switch_core_session_get_pool(session)) != SWITCH_STATUS_SUCCESS) {
 
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Failed to initialize L16 codec.\n");
 		status = SWITCH_STATUS_FALSE;
 		goto end;
 	}
@@ -2211,6 +2297,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_detect_audio(switch_core_session_t *s
 		status = switch_core_session_read_frame(session, &read_frame, SWITCH_IO_FLAG_NONE, 0);
 
 		if (!SWITCH_READ_ACCEPTABLE(status)) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Failed to read frame.\n");
 			break;
 		}
 
@@ -2219,7 +2306,9 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_detect_audio(switch_core_session_t *s
 			if (sample_count <= 0) {
 				switch_channel_set_variable(channel, "detect_audio_timeout", "true");
 				switch_channel_set_variable_printf(channel, "detect_audio_hits", "%d", hits);
-				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "switch_ivr_detect_audio: TIMEOUT %d hits\n", hits);
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
+				  "switch_ivr_detect_audio: TIMEOUT after %d ms at %d hits\n",
+				  timeout_ms, hits);
 				break;
 			}
 		}
@@ -2228,12 +2317,14 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_detect_audio(switch_core_session_t *s
 			switch_size_t olen = raw_codec.implementation->samples_per_packet;
 
 			if (switch_core_file_read(&fh, abuf, &olen) != SWITCH_STATUS_SUCCESS) {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Failed to read file %s.\n", file);
 				break;
 			}
 
 			write_frame.samples = (uint32_t) olen;
 			write_frame.datalen = (uint32_t) (olen * sizeof(int16_t) * fh.channels);
 			if ((status = switch_core_session_write_frame(session, &write_frame, SWITCH_IO_FLAG_NONE, 0)) != SWITCH_STATUS_SUCCESS) {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Failed to write frame from file %s.\n", file);
 				break;
 			}
 		}
@@ -2304,6 +2395,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_detect_silence(switch_core_session_t 
 								  file,
 								  read_impl.number_of_channels,
 								  read_impl.actual_samples_per_second, SWITCH_FILE_FLAG_READ | SWITCH_FILE_DATA_SHORT, NULL) != SWITCH_STATUS_SUCCESS) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Failure opening playback file %s.\n", file);
 			switch_core_session_reset(session, SWITCH_TRUE, SWITCH_FALSE);
 			return SWITCH_STATUS_NOTFOUND;
 		}
@@ -2322,6 +2414,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_detect_silence(switch_core_session_t 
 							   1, SWITCH_CODEC_FLAG_ENCODE | SWITCH_CODEC_FLAG_DECODE,
 							   NULL, switch_core_session_get_pool(session)) != SWITCH_STATUS_SUCCESS) {
 
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Failed to initialize L16 codec.\n");
 		status = SWITCH_STATUS_FALSE;
 		goto end;
 	}
@@ -2338,6 +2431,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_detect_silence(switch_core_session_t 
 		status = switch_core_session_read_frame(session, &read_frame, SWITCH_IO_FLAG_NONE, 0);
 
 		if (!SWITCH_READ_ACCEPTABLE(status)) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Failed to read frame.\n");
 			break;
 		}
 
@@ -2346,7 +2440,9 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_detect_silence(switch_core_session_t 
 			if (sample_count <= 0) {
 				switch_channel_set_variable(channel, "detect_silence_timeout", "true");
 				switch_channel_set_variable_printf(channel, "detect_silence_hits", "%d", hits);
-				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "switch_ivr_detect_silence: TIMEOUT %d hits\n", hits);
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
+				  "switch_ivr_detect_silence: TIMEOUT after %d ms at %d hits\n",
+				  timeout_ms, hits);
 				break;
 			}
 		}
@@ -2355,12 +2451,14 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_detect_silence(switch_core_session_t 
 			switch_size_t olen = raw_codec.implementation->samples_per_packet;
 
 			if (switch_core_file_read(&fh, abuf, &olen) != SWITCH_STATUS_SUCCESS) {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Failed to read file %s.\n", file);
 				break;
 			}
 
 			write_frame.samples = (uint32_t) olen;
 			write_frame.datalen = (uint32_t) (olen * sizeof(int16_t) * fh.channels);
 			if ((status = switch_core_session_write_frame(session, &write_frame, SWITCH_IO_FLAG_NONE, 0)) != SWITCH_STATUS_SUCCESS) {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Failed to write frame from file %s.\n", file);
 				break;
 			}
 		}
@@ -2653,7 +2751,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_speak_text_handle(switch_core_session
 	uint32_t len = 0;
 	switch_size_t ilen = 0;
 	switch_frame_t write_frame = { 0 };
-	int done = 0;
 	switch_status_t status = SWITCH_STATUS_SUCCESS;
 	switch_speech_flag_t flags = SWITCH_SPEECH_FLAG_NONE;
 	switch_size_t extra = 0;
@@ -2711,11 +2808,11 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_speak_text_handle(switch_core_session
 		memset(tmp, 0, mylen);
 		tp = tmp;
 		for (p = text; p && *p; p++) {
-			if (*p == '*') {
-				strncat(tp, star, starlen);
+			if (*p == '*' ) {
+				snprintf(tp + strlen(tp), sizeof(tp) - strlen(tp), "%s", star);
 				tp += starlen;
 			} else if (*p == '#') {
-				strncat(tp, pound, poundlen);
+				snprintf(tp + strlen(tp), sizeof(tp) - strlen(tp), "%s", pound);
 				tp += poundlen;
 			} else {
 				*tp++ = *p;
@@ -2757,10 +2854,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_speak_text_handle(switch_core_session
 			break;
 		}
 
-		if (switch_core_session_dequeue_private_event(session, &event) == SWITCH_STATUS_SUCCESS) {
-			switch_ivr_parse_event(session, event);
-			switch_event_destroy(&event);
-		}
+		switch_ivr_parse_all_events(session);
 
 		if (args) {
 			/* dtmf handler function you can hook up to be executed when a digit is dialed during playback
@@ -2769,7 +2863,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_speak_text_handle(switch_core_session
 			if (switch_channel_has_dtmf(channel)) {
 				if (!args->input_callback && !args->buf && !args->dmachine) {
 					status = SWITCH_STATUS_BREAK;
-					done = 1;
 					break;
 				}
 				if (args->buf && !strcasecmp(args->buf, "_break_")) {
@@ -2804,7 +2897,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_speak_text_handle(switch_core_session
 			}
 
 			if (status != SWITCH_STATUS_SUCCESS) {
-				done = 1;
 				break;
 			}
 		}
@@ -2850,10 +2942,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_speak_text_handle(switch_core_session
 			if (status == SWITCH_STATUS_BREAK) {
 				status = SWITCH_STATUS_SUCCESS;
 			}
-			done = 1;
-		}
-
-		if (done) {
 			break;
 		}
 
@@ -2863,11 +2951,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_speak_text_handle(switch_core_session
 			write_frame.timestamp = timer->samplecount;
 		}
 		if (switch_core_session_write_frame(session, &write_frame, SWITCH_IO_FLAG_NONE, 0) != SWITCH_STATUS_SUCCESS) {
-			done = 1;
-			break;
-		}
-
-		if (done) {
 			break;
 		}
 
@@ -3119,6 +3202,8 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_soft_hold(switch_core_session_t *sess
 	const char *other_uuid, *moh = NULL;
 	int moh_br = 0;
 	switch_input_args_t args = { 0 };
+	switch_status_t res;
+
 	args.input_callback = hold_on_dtmf;
 	args.buf = (void *) unhold_key;
 	args.buflen = (uint32_t) strlen(unhold_key);
@@ -3149,10 +3234,12 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_soft_hold(switch_core_session_t *sess
 			}
 
 			if (!zstr(moh) && strcasecmp(moh, "silence")) {
-				switch_ivr_play_file(session, NULL, moh, &args);
+				res = switch_ivr_play_file(session, NULL, moh, &args);
 			} else {
-				switch_ivr_collect_digits_callback(session, &args, 0, 0);
+				res = switch_ivr_collect_digits_callback(session, &args, 0, 0);
 			}
+
+			(void)res;
 
 			if (moh_br) {
 				switch_channel_stop_broadcast(other_channel);
@@ -3163,13 +3250,361 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_soft_hold(switch_core_session_t *sess
 
 			return SWITCH_STATUS_SUCCESS;
 		}
-
 	}
 
 	switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Channel %s is not in a bridge\n", switch_channel_get_name(channel));
+
 	return SWITCH_STATUS_FALSE;
 
 }
+
+
+
+typedef enum {
+	/** playing initial prompt - allow barge in */
+	SWITCH_COLLECT_INPUT_PROMPT = (1 << 0),
+	/** looking for speech input */
+	SWITCH_COLLECT_INPUT_SPEECH = (1 << 1),
+	/** finished looking for speech input */
+	SWITCH_COLLECT_INPUT_SPEECH_DONE = (1 << 2),
+	/** looking for digits */
+	SWITCH_COLLECT_INPUT_DIGITS = (1 << 3),
+	/** finished looking for digits */
+	SWITCH_COLLECT_INPUT_DIGITS_DONE = (1 << 4)
+} switch_collect_input_flags_t;
+
+typedef struct {
+	int flags;
+	cJSON *recognition_result;
+	char *digits;
+	int min_digits;
+	int max_digits;
+	const char *terminators;
+	char terminator;
+	switch_time_t last_digit_time;
+	switch_bool_t is_speech;
+	switch_input_args_t *original_args;
+} switch_collect_input_state_t;
+
+static void deliver_asr_event(switch_core_session_t *session, switch_event_t *event, switch_input_args_t *args)
+{
+	if (args && args->input_callback) {
+		args->input_callback(session, (void *)event, SWITCH_INPUT_TYPE_EVENT, args->buf, args->buflen);
+	}
+}
+
+static switch_status_t switch_collect_input_callback(switch_core_session_t *session, void *input, switch_input_type_t input_type, void *data, unsigned int len)
+{
+	switch_collect_input_state_t *state = (switch_collect_input_state_t *)data;
+	switch_channel_t *channel = switch_core_session_get_channel(session);
+
+	if (switch_test_flag(state, SWITCH_COLLECT_INPUT_SPEECH) && input_type == SWITCH_INPUT_TYPE_EVENT) {
+		const char *speech_type = NULL;
+		switch_event_t *event = (switch_event_t *)input;
+
+		if (event->event_id != SWITCH_EVENT_DETECTED_SPEECH) return SWITCH_STATUS_SUCCESS;
+
+		speech_type = switch_event_get_header(event, "Speech-Type");
+
+		if (zstr(speech_type)) return SWITCH_STATUS_SUCCESS;
+
+		deliver_asr_event(session, event, state->original_args);
+
+		if (!strcasecmp(speech_type, "detected-speech")) {
+			const char *result = switch_event_get_body(event);
+
+			/* stop waiting for speech */
+			switch_set_flag(state, SWITCH_COLLECT_INPUT_SPEECH_DONE);
+
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_INFO, "(%s) DETECTED SPEECH %s\n", switch_channel_get_name(channel), speech_type);
+
+			if (!zstr(result)) {
+				state->recognition_result = cJSON_Parse(result);
+
+				if (state->recognition_result) {
+					const char *text = cJSON_GetObjectCstr(state->recognition_result, "text");
+
+					if (!zstr(text)) {
+						/* stop waiting for digits */
+						switch_set_flag(state, SWITCH_COLLECT_INPUT_DIGITS_DONE);
+					}
+				}
+			}
+			return SWITCH_STATUS_BREAK;
+		} else if (!strcasecmp(speech_type, "detected-partial-speech")) {
+		} else if (!strcasecmp("closed", speech_type)) {
+			/* stop waiting for speech */
+			switch_set_flag(state, SWITCH_COLLECT_INPUT_SPEECH_DONE);
+			return SWITCH_STATUS_BREAK;
+		} else if (!strcasecmp(speech_type, "begin-speaking")) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_INFO, "(%s) START OF SPEECH\n", switch_channel_get_name(channel));
+			state->is_speech = SWITCH_TRUE;
+
+			if (switch_test_flag(state, SWITCH_COLLECT_INPUT_PROMPT)) {
+				/* barge in on prompt */
+				return SWITCH_STATUS_BREAK;
+			}
+		} else {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_INFO, "Unhandled Speech-Type %s\n", speech_type);
+		}
+	}
+
+	if (switch_test_flag(state, SWITCH_COLLECT_INPUT_DIGITS) && input_type == SWITCH_INPUT_TYPE_DTMF) {
+		switch_dtmf_t *dtmf = (switch_dtmf_t *) input;
+		state->last_digit_time = switch_micro_time_now();
+		state->is_speech = SWITCH_FALSE;
+
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "\nis_speech = false; SWITCH_INPUT_TYPE_DTMF; last_digit_time=%" SWITCH_INT64_T_FMT "\n", state->last_digit_time);
+
+		if (!zstr(state->terminators) && strchr(state->terminators, dtmf->digit)) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "(%s) ACCEPT TERMINATOR %c\n",
+							  switch_channel_get_name(channel), dtmf->digit);
+
+			state->terminator = dtmf->digit;
+
+			/* stop waiting for digits */
+			switch_set_flag(state, SWITCH_COLLECT_INPUT_DIGITS_DONE);
+
+			if (switch_test_flag(state, SWITCH_COLLECT_INPUT_DIGITS) && !zstr(state->digits)) {
+				/* stop waiting for speech */
+				switch_set_flag(state, SWITCH_COLLECT_INPUT_SPEECH_DONE);
+			}
+
+			/* barge-in and break playback on terminator */
+			return SWITCH_STATUS_BREAK;
+		}
+
+		if (!switch_test_flag(state, SWITCH_COLLECT_INPUT_DIGITS_DONE)) {
+			int digits_collected = strlen(state->digits);
+
+			if (digits_collected < state->max_digits) {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "(%s) ACCEPT DIGIT %c\n",
+								  switch_channel_get_name(channel), dtmf->digit);
+				state->digits[digits_collected] = dtmf->digit;
+			}
+
+			if (digits_collected + 1 >= state->max_digits) {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "(%s) MAX DIGITS COLLECTED\n", switch_channel_get_name(channel));
+				switch_set_flag(state, SWITCH_COLLECT_INPUT_DIGITS_DONE); // stop waiting for digits
+				switch_set_flag(state, SWITCH_COLLECT_INPUT_SPEECH_DONE); // stop waiting for speech, too
+			}
+		}
+		return SWITCH_STATUS_BREAK; // got a digit- break for inter-digit timeout / checking results / barge-in
+	}
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+
+
+/*!\brief Play prompt and collect input
+*
+* Returns collect status
+*
+* \param[in]    session   the current session
+*
+* \return Returns status
+* SWITCH_STATUS_SUCCESS   when success
+* SWITCH_STATUS_FALSE     when error
+* SWITCH_STATUS_GENERR    when error
+*/
+SWITCH_DECLARE(switch_status_t) switch_ivr_play_and_collect_input(switch_core_session_t *session,
+															const char *prompt,
+															const char *recognizer_mod_name,
+															const char *recognizer_grammar,
+															int min_digits,
+															int max_digits,
+															const char *terminators,
+															uint32_t digit_timeout,
+															cJSON **recognition_result,
+															char **digits_collected,
+															char *terminator_collected,
+															switch_input_args_t *args)
+{
+	switch_status_t status = SWITCH_STATUS_FALSE;
+	switch_input_args_t myargs = { 0 };
+	switch_collect_input_state_t state = { 0 };
+	switch_channel_t *channel = switch_core_session_get_channel(session);
+
+	arg_recursion_check_start(args);
+
+	/* configure digit collection */
+	if (digit_timeout <= 0) digit_timeout = 5000;
+	if (min_digits < 0) {
+		min_digits = 0;
+	}
+
+	/* check if digit collection is enabled */
+	if (min_digits > 0) {
+		if (max_digits < min_digits) {
+			max_digits = min_digits;
+		}
+		if (max_digits > 100) {
+			max_digits = 100;
+		}
+		state.digits = switch_core_session_alloc(session, sizeof(char) * (max_digits + 1));
+		switch_set_flag(&state, SWITCH_COLLECT_INPUT_DIGITS);
+	} else {
+		switch_set_flag(&state, SWITCH_COLLECT_INPUT_DIGITS_DONE);
+	}
+
+	state.min_digits = min_digits;
+	state.max_digits = max_digits;
+	if (!zstr(terminators)) {
+		if (!strcasecmp(terminators, "any")) {
+			state.terminators = "1234567890*#";
+		} else if (!strcasecmp(terminators, "none")) {
+			state.terminators = NULL;
+		} else {
+			state.terminators = terminators;
+		}
+	}
+
+	/* start speech recognition, if enabled */
+	if (recognizer_grammar && recognizer_mod_name) {
+		if ((status = switch_ivr_detect_speech(session, recognizer_mod_name, recognizer_grammar, "", NULL, NULL)) != SWITCH_STATUS_SUCCESS) {
+			/* map SWITCH_STATUS_FALSE to SWITCH_STATUS_GENERR to indicate grammar load failed
+			SWITCH_STATUS_NOT_INITALIZED will be passed back to indicate ASR resource problem */
+			if (status == SWITCH_STATUS_FALSE) {
+				status = SWITCH_STATUS_GENERR;
+			}
+			goto done;
+		}
+		switch_set_flag(&state, SWITCH_COLLECT_INPUT_SPEECH);
+	} else {
+		switch_set_flag(&state, SWITCH_COLLECT_INPUT_SPEECH_DONE);
+	}
+
+	/* play the prompt, looking for input result */
+
+	if (args) {
+		state.original_args = args;
+		myargs.dmachine = args->dmachine;
+		myargs.read_frame_callback = args->read_frame_callback;
+		myargs.user_data = args->user_data;
+	}
+
+	myargs.input_callback = switch_collect_input_callback;
+	myargs.buf = &state;
+	myargs.buflen = sizeof(state);
+
+	switch_set_flag(&state, SWITCH_COLLECT_INPUT_PROMPT);
+	status = switch_ivr_play_file(session, NULL, prompt, &myargs);
+	switch_clear_flag(&state, SWITCH_COLLECT_INPUT_PROMPT);
+
+	if (args && args->dmachine && switch_ivr_dmachine_last_ping(args->dmachine) != SWITCH_STATUS_SUCCESS) {
+		switch_set_flag(&state, SWITCH_COLLECT_INPUT_DIGITS_DONE);
+		switch_set_flag(&state, SWITCH_COLLECT_INPUT_SPEECH_DONE);
+		status = SWITCH_STATUS_SUCCESS;
+	}
+
+	if (status != SWITCH_STATUS_BREAK && status != SWITCH_STATUS_SUCCESS) {
+		status = SWITCH_STATUS_FALSE;
+		goto done;
+	}
+
+	// wait for final result if not done
+	if (!switch_test_flag(&state, SWITCH_COLLECT_INPUT_DIGITS_DONE) || !switch_test_flag(&state, SWITCH_COLLECT_INPUT_SPEECH_DONE)) {
+		int sleep_time = digit_timeout;
+
+		if (switch_test_flag(&state, SWITCH_COLLECT_INPUT_SPEECH)) {
+			switch_ivr_detect_speech_start_input_timers(session);
+		}
+		state.last_digit_time = switch_micro_time_now();
+
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_INFO, "(%s) WAITING FOR RESULT\n", switch_channel_get_name(channel));
+
+		while ((!switch_test_flag(&state, SWITCH_COLLECT_INPUT_DIGITS_DONE) || !switch_test_flag(&state, SWITCH_COLLECT_INPUT_SPEECH_DONE))
+			   && switch_channel_ready(channel)) {
+
+			status = switch_ivr_sleep(session, sleep_time, SWITCH_FALSE, &myargs);
+
+			if (args && args->dmachine && switch_ivr_dmachine_last_ping(args->dmachine) != SWITCH_STATUS_SUCCESS) {
+				// dmachine done
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "(%s) DMACHINE DONE\n", switch_channel_get_name(channel));
+				switch_set_flag(&state, SWITCH_COLLECT_INPUT_DIGITS_DONE);
+				switch_set_flag(&state, SWITCH_COLLECT_INPUT_SPEECH_DONE);
+				status = SWITCH_STATUS_SUCCESS;
+				goto done;
+			}
+
+			if (state.terminator != 0) {
+				switch_set_flag(&state, SWITCH_COLLECT_INPUT_SPEECH_DONE);
+				status = SWITCH_STATUS_SUCCESS;
+				sleep_time = digit_timeout;
+				continue;
+			}
+
+			if (state.is_speech == SWITCH_FALSE) {
+
+				// calculating how much time has elapsed since the last digit was collected
+				sleep_time = (switch_micro_time_now() - state.last_digit_time) / 1000;
+
+				if (sleep_time >= digit_timeout) {
+					// too much time since last digit
+					if (!switch_test_flag(&state, SWITCH_COLLECT_INPUT_DIGITS_DONE)) {
+						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, " (%s) INTER-DIGIT TIMEOUT is_speech = false; sleep_time >= digit_timeout; sleep_time=%i; last_digit_time=%" SWITCH_INT64_T_FMT "; digit_timeout=%lu \n", switch_channel_get_name(channel), sleep_time, state.last_digit_time, (unsigned long)digit_timeout);
+						switch_set_flag(&state, SWITCH_COLLECT_INPUT_DIGITS_DONE);
+					} else {
+						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "\nis_speech = false; sleep_time >= digit_timeout; sleep_time=%i; last_digit_time=%" SWITCH_INT64_T_FMT "; digit_timeout=%lu \n", sleep_time, state.last_digit_time, (unsigned long)digit_timeout);
+					}
+					status = SWITCH_STATUS_SUCCESS;
+					sleep_time = digit_timeout;
+				} else {		
+					// woke up early, sleep for remaining digit timeout
+					sleep_time = digit_timeout - sleep_time;
+				}
+			} else {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "\nis_speech = true; sleep_time < digit_timeout; sleep_time=%i; last_digit_time=%" SWITCH_INT64_T_FMT "; digit_timeout=%lu \n", sleep_time, state.last_digit_time, (unsigned long)digit_timeout);
+			}
+
+			if (status != SWITCH_STATUS_BREAK && status != SWITCH_STATUS_SUCCESS) {
+				// error of some sort
+				status = SWITCH_STATUS_FALSE;
+				goto done;
+			}
+
+		}
+	}
+
+done:
+
+	if (status == SWITCH_STATUS_BREAK) {
+		status = SWITCH_STATUS_SUCCESS;
+	}
+
+	if (switch_test_flag(&state, SWITCH_COLLECT_INPUT_SPEECH)) {
+		switch_ivr_pause_detect_speech(session);
+	}
+
+	if (!zstr(state.digits) && strlen(state.digits) >= state.min_digits) {
+		/* got DTMF result */
+		if (digits_collected) {
+			*digits_collected = state.digits;
+		}
+
+		if (state.recognition_result) {
+			cJSON_Delete(state.recognition_result);
+		}
+	} else if (state.recognition_result) {
+		/* have some kind of recognition result or error */
+		if (recognition_result) {
+			*recognition_result = state.recognition_result;
+		} else {
+			cJSON_Delete(state.recognition_result);
+		}
+	}
+
+	if (terminator_collected && state.terminator != 0) {
+		*terminator_collected = state.terminator;
+	}
+
+	arg_recursion_check_stop(args);
+
+	return status;
+}
+
+
 
 /* For Emacs:
  * Local Variables:

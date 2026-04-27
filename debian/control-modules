@@ -12,6 +12,7 @@ Module: applications/mod_av
 Description: mod_av
  Adds mod_av.
 Build-Depends: libavformat-dev, libswscale-dev, libavresample-dev
+Build-Depends-Bookworm: libavformat-dev, libswscale-dev, libswresample-dev
 
 Module: applications/mod_avmd
 Description: Advanced voicemail detection
@@ -117,7 +118,7 @@ Module: applications/mod_hiredis
 Description: Redis client support
  This module provides a mechanism to use Redis as a datastore.
 Build-Depends: libhiredis-dev
-Depends: libhiredis0.10 | libhiredis0.13
+Depends: libhiredis0.10 | libhiredis0.13 | libhiredis0.14
 
 Module: applications/mod_httapi
 Description: HT-TAPI Hypertext Telephony API
@@ -209,7 +210,7 @@ Description: Adds mod_skel
 Module: applications/mod_signalwire
 Description: mod_signalwire
  Adds mod_signalwire.
-Build-Depends: libks, signalwire-client-c
+Build-Depends: libks2, signalwire-client-c2
 
 Module: applications/mod_sms
 Description: Astract SMS
@@ -290,10 +291,6 @@ Description: mod_pocketsphinx
 Module: asr_tts/mod_tts_commandline
 Description: mod_tts_commandline
  Adds mod_tts_commandline.
-
-Module: asr_tts/mod_unimrcp
-Description: mod_unimrcp
- Adds mod_unimrcp.
 
 ## mod/codecs
 
@@ -391,6 +388,18 @@ Module: codecs/mod_yuv
 Description: Adds mod_yuv
  Adds mod_yuv.
 
+## mod/databases
+
+Module: databases/mod_mariadb
+Description: Adds mod_mariadb
+ Adds mod_mariadb.
+Build-Depends: libmariadb-dev
+
+Module: databases/mod_pgsql
+Description: Adds mod_pgsql
+ Adds mod_pgsql.
+Build-Depends: libpq-dev 
+
 ## mod/dialplans
 
 Module: dialplans/mod_dialplan_asterisk
@@ -418,10 +427,6 @@ Module: endpoints/mod_alsa
 Description: mod_alsa
  Adds mod_alsa.
 Build-Depends: libasound2-dev
-
-Module: endpoints/mod_dingaling
-Description: mod_dingaling
- Adds mod_dingaling.
 
 Module: endpoints/mod_gsmopen
 Description: mod_gsmopen
@@ -479,6 +484,9 @@ Module: endpoints/mod_verto
 Description: Adds mod_verto.
  Adds mod_verto.
 Build-Depends: libperl-dev
+Build-Depends-Buster: libperl-dev, libgdbm-compat-dev
+Build-Depends-Bullseye: libperl-dev, libgdbm-compat-dev
+Build-Depends-Bookworm: libperl-dev, libgdbm-compat-dev
 
 ## mod/event_handlers
 
@@ -533,12 +541,6 @@ Description: mod_format_cdr
 Module: event_handlers/mod_json_cdr
 Description: mod_json_cdr
  Adds mod_json_cdr.
-
-Module: event_handlers/mod_kazoo
-Description: mod_kazoo
- Adds mod_kazoo.
-Build-Depends: erlang-dev
-Depends: erlang
 
 Module: event_handlers/mod_odbc_cdr
 Description: mod_odbc_cdr
@@ -635,12 +637,13 @@ Description: Adds mod_basic.
 Module: languages/mod_java
 Description: mod_java
  Adds mod_java.
-Build-Depends: default-jdk, gcj-jdk
+Build-Depends: default-jdk
 
 Module: languages/mod_lua
 Description: mod_lua
  Adds mod_lua.
 Build-Depends: liblua5.2-dev | liblua5.1-dev
+Build-Depends-Bookworm: liblua5.3-dev | liblua5.2-dev | liblua5.1-dev
 
 Module: languages/mod_managed
 Description: mod_managed
@@ -651,11 +654,20 @@ Module: languages/mod_perl
 Description: mod_perl
  Adds mod_perl.
 Build-Depends: libperl-dev
+Build-Depends-Buster: libperl-dev, libgdbm-compat-dev
+Build-Depends-Bullseye: libperl-dev, libgdbm-compat-dev
+Build-Depends-Bookworm: libperl-dev, libgdbm-compat-dev
 
 Module: languages/mod_python
 Description: mod_python
  Adds mod_python.
-Build-Depends: python-dev 
+Build-Depends: python-dev | python-dev-is-python2
+
+Module: languages/mod_python3
+Description: mod_python3
+ Adds mod_python3.
+Build-Depends: python3-dev
+Build-Depends-Bookworm: python3-dev, python3-setuptools
 
 Module: languages/mod_v8
 Description: mod_v8

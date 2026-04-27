@@ -1,5 +1,5 @@
 #applications/mod_abstraction
-#applications/mod_av
+applications/mod_av
 #applications/mod_avmd
 #applications/mod_bert
 #applications/mod_blacklist
@@ -49,6 +49,7 @@ applications/mod_sms
 applications/mod_spandsp
 #applications/mod_spy
 #applications/mod_stress
+applications/mod_test
 #applications/mod_translate
 applications/mod_valet_parking
 #applications/mod_video_filter
@@ -59,7 +60,6 @@ applications/mod_voicemail
 #asr_tts/mod_flite
 #asr_tts/mod_pocketsphinx
 #asr_tts/mod_tts_commandline
-#asr_tts/mod_unimrcp
 codecs/mod_amr
 #codecs/mod_amrwb
 codecs/mod_b64
@@ -79,12 +79,13 @@ codecs/mod_opus
 #codecs/mod_silk
 #codecs/mod_siren
 #codecs/mod_theora
+#databases/mod_mariadb
+databases/mod_pgsql
 dialplans/mod_dialplan_asterisk
 #dialplans/mod_dialplan_directory
 dialplans/mod_dialplan_xml
 #directories/mod_ldap
 #endpoints/mod_alsa
-#endpoints/mod_dingaling
 #endpoints/mod_gsmopen
 #endpoints/mod_h323
 #endpoints/mod_khomp
@@ -109,7 +110,6 @@ event_handlers/mod_event_socket
 #event_handlers/mod_json_cdr
 #event_handlers/mod_radius_cdr
 #event_handlers/mod_odbc_cdr
-#event_handlers/mod_kazoo
 #event_handlers/mod_rayo
 #event_handlers/mod_smpp
 #event_handlers/mod_snmp
@@ -132,6 +132,7 @@ languages/mod_lua
 #languages/mod_managed
 #languages/mod_perl
 #languages/mod_python
+#languages/mod_python3
 #languages/mod_v8
 #languages/mod_yaml
 loggers/mod_console
@@ -166,7 +167,7 @@ xml_int/mod_xml_cdr
 xml_int/mod_xml_rpc
 xml_int/mod_xml_scgi
 
-#../../libs/freetdm/mod_freetdm
+#mod_freetdm|https://github.com/freeswitch/freetdm.git -b master
 
 ## Experimental Modules (don't cry if they're broken)
 #../../contrib/mod/xml_int/mod_xml_odbc

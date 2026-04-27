@@ -132,7 +132,6 @@ cd d:\03_rocktech\source\freeswitch\scripts\python\ptt_demo
 - `FS_DOMAIN`（默认 `127.0.0.1`，应与拨号计划中的 `${domain_name}` 一致）
 - `RECORDINGS_DIR`（默认 `C:/freeswitch/recordings`）
 - `BOT_AUDIO_DIR`（默认 `scripts/python/ptt_demo/bot_audio`）
-- `PTT_FLOOR_TIMEOUT_SECONDS`（默认 `10`，半双工话权超时秒数）
 
 ## 6. 测试步骤
 
@@ -257,43 +256,6 @@ curl -X POST http://127.0.0.1:8090/api/bot/reply \
 预期：
 
 - 场地1信道1 (`ptt_s1_c1`) 内成员听到机器人播报语音。
-
-### 6.6 半双工话权测试（新增）
-
-当前 Demo 已支持最小半双工控制，默认规则如下：
-
-- DTMF `9`：申请话权（若当前空闲则授予，若已占用则返回 busy）
-- DTMF `0`：释放话权
-- DTMF `1`/`2`/`3`：保留机器人播报触发
-
-测试步骤：
-
-1. 终端A、终端B都拨 `711`。
-2. A 按 `9` 申请话权，A 讲话时 B 仅监听。
-3. B 按 `9`，若 A 未释放则应保持占线状态（busy）。
-4. A 按 `0` 释放。
-5. B 再按 `9`，B 成为当前发言方。
-
-查询当前房间话权状态：
-
-```powershell
-Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8090/api/ptt/state" | ConvertTo-Json -Depth 6
-Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8090/api/ptt/state/1/1" | ConvertTo-Json -Depth 6
-```
-
-按 `call_id` 申请/释放话权（用于接口联调）：
-
-```powershell
-# 取最近通话 call_id
-$all = Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8090/api/logs"
-$callId = $all[-1].call_id
-
-# 申请话权
-Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8090/api/ptt/floor/request" -ContentType "application/json" -Body (@{call_id=$callId} | ConvertTo-Json)
-
-# 释放话权
-Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8090/api/ptt/floor/release" -ContentType "application/json" -Body (@{call_id=$callId} | ConvertTo-Json)
-```
 
 ## 7. 演示脚本（建议）
 

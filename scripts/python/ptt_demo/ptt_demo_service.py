@@ -13,19 +13,12 @@ from pydantic import BaseModel, Field
 
 
 DEST_RE = re.compile(r"^7([1-4])([1-4])$")
-CONF_SUBCLASS = "conference::maintenance"
-PTT_FLOOR_REQUEST_DIGIT = "9"
-PTT_FLOOR_RELEASE_DIGIT = "0"
 
 
 class BotReplyRequest(BaseModel):
     site: int = Field(ge=1, le=4)
     channel: int = Field(ge=1, le=4)
     question: str = ""
-
-
-class FloorControlRequest(BaseModel):
-    call_id: str = Field(min_length=8)
 
 
 class EslClient:
@@ -151,12 +144,8 @@ class PttState:
         self.recordings_root = recordings_root
         self.bot_audio_dir = Path(bot_audio_dir)
         self.active_calls: Dict[str, Dict[str, str]] = {}
-        self.room_members: Dict[str, Dict[str, str]] = {}
-        self.member_to_call: Dict[str, Dict[str, str]] = {}
-        self.room_floor: Dict[str, Dict[str, str]] = {}
         self.logs: List[Dict[str, str]] = []
         self.max_logs = 5000
-        self.floor_timeout_seconds = max(3, int(os.getenv("PTT_FLOOR_TIMEOUT_SECONDS", "10")))
         self.lock = threading.Lock()
 
         self.bot_answers = {
@@ -165,10 +154,6 @@ class PttState:
             "3": "qa_help.wav",
             "default": "qa_default.wav",
         }
-
-    @staticmethod
-    def _floor_expires_at(now_ts: float, timeout_seconds: int) -> str:
-        return str(int(now_ts + timeout_seconds))
 
     def _fmt_time(self, ts_micro: Optional[str]) -> str:
         if not ts_micro:
@@ -257,162 +242,6 @@ class PttState:
             for i, log in enumerate(self.logs, start=1):
                 log["seq"] = str(i)
 
-    def room_and_member_by_call(self, call_id: str) -> tuple:
-        with self.lock:
-            m = self.member_to_call.get(call_id)
-            if not m:
-                return "", ""
-            return m.get("room", ""), m.get("member_id", "")
-
-    def room_from_active_call(self, call_id: str) -> Optional[str]:
-        with self.lock:
-            active = self.active_calls.get(call_id)
-            if not active:
-                return None
-            return active.get("room")
-
-    def add_conference_member(self, room: str, call_id: str, member_id: str) -> None:
-        if not room or not call_id or not member_id:
-            return
-        with self.lock:
-            members = self.room_members.setdefault(room, {})
-            members[call_id] = member_id
-            self.member_to_call[call_id] = {"room": room, "member_id": member_id}
-
-    def remove_conference_member(self, room: str, call_id: str, member_id: str) -> bool:
-        if not room:
-            return False
-        floor_released = False
-        with self.lock:
-            if call_id:
-                self.member_to_call.pop(call_id, None)
-            members = self.room_members.get(room, {})
-            if call_id in members:
-                members.pop(call_id, None)
-            elif member_id:
-                for cid, mid in list(members.items()):
-                    if mid == member_id:
-                        members.pop(cid, None)
-                        self.member_to_call.pop(cid, None)
-                        call_id = cid
-                        break
-
-            if not members:
-                self.room_members.pop(room, None)
-
-            active_floor = self.room_floor.get(room)
-            if active_floor and call_id and active_floor.get("call_id") == call_id:
-                self.room_floor.pop(room, None)
-                floor_released = True
-
-        return floor_released
-
-    def release_floor_for_call(self, call_id: str, reason: str = "manual") -> Dict[str, str]:
-        with self.lock:
-            active = self.active_calls.get(call_id, {})
-            room = active.get("room", "") or self.member_to_call.get(call_id, {}).get("room", "")
-            if not room:
-                return {"result": "not_found", "call_id": call_id}
-
-            active_floor = self.room_floor.get(room)
-            if not active_floor:
-                return {"result": "idle", "room": room, "call_id": call_id}
-
-            if active_floor.get("call_id") != call_id:
-                return {
-                    "result": "not_holder",
-                    "room": room,
-                    "call_id": call_id,
-                    "holder_call_id": active_floor.get("call_id", ""),
-                }
-
-            self.room_floor.pop(room, None)
-            return {"result": "released", "room": room, "call_id": call_id, "reason": reason}
-
-    def request_floor_for_call(self, call_id: str, now_ts: Optional[float] = None) -> Dict[str, str]:
-        now_ts = now_ts or time.time()
-        with self.lock:
-            active = self.active_calls.get(call_id)
-            if not active:
-                return {"result": "call_not_found", "call_id": call_id}
-
-            room = active.get("room", "")
-            if not room:
-                return {"result": "room_not_found", "call_id": call_id}
-
-            current = self.room_floor.get(room)
-            if current:
-                expires_at = int(current.get("expires_at_ts", "0") or "0")
-                if expires_at <= int(now_ts):
-                    self.room_floor.pop(room, None)
-                    current = None
-
-            if current:
-                if current.get("call_id") == call_id:
-                    current["expires_at_ts"] = self._floor_expires_at(now_ts, self.floor_timeout_seconds)
-                    return {
-                        "result": "renewed",
-                        "room": room,
-                        "call_id": call_id,
-                        "expires_at_ts": current["expires_at_ts"],
-                    }
-                return {
-                    "result": "busy",
-                    "room": room,
-                    "call_id": call_id,
-                    "holder_call_id": current.get("call_id", ""),
-                    "expires_at_ts": current.get("expires_at_ts", ""),
-                }
-
-            self.room_floor[room] = {
-                "call_id": call_id,
-                "expires_at_ts": self._floor_expires_at(now_ts, self.floor_timeout_seconds),
-            }
-            return {
-                "result": "granted",
-                "room": room,
-                "call_id": call_id,
-                "expires_at_ts": self.room_floor[room]["expires_at_ts"],
-            }
-
-    def expire_floors(self, now_ts: Optional[float] = None) -> List[str]:
-        now_ts = now_ts or time.time()
-        changed_rooms: List[str] = []
-        with self.lock:
-            for room, state in list(self.room_floor.items()):
-                expires_at = int(state.get("expires_at_ts", "0") or "0")
-                if expires_at <= int(now_ts):
-                    self.room_floor.pop(room, None)
-                    changed_rooms.append(room)
-        return changed_rooms
-
-    def room_floor_holder(self, room: str) -> str:
-        with self.lock:
-            floor = self.room_floor.get(room)
-            if not floor:
-                return ""
-            return floor.get("call_id", "")
-
-    def room_member_ids(self, room: str) -> Dict[str, str]:
-        with self.lock:
-            return dict(self.room_members.get(room, {}))
-
-    def ptt_state_by_room(self, room: str) -> Dict[str, str]:
-        with self.lock:
-            floor = self.room_floor.get(room, {})
-            members = self.room_members.get(room, {})
-            return {
-                "room": room,
-                "holder_call_id": floor.get("call_id", ""),
-                "expires_at_ts": floor.get("expires_at_ts", ""),
-                "member_count": str(len(members)),
-            }
-
-    def ptt_state_all(self) -> List[Dict[str, str]]:
-        with self.lock:
-            rooms = sorted(set(self.room_members.keys()) | set(self.room_floor.keys()))
-        return [self.ptt_state_by_room(room) for room in rooms]
-
     def find_recent_by_call(self, call_id: str) -> Optional[Dict[str, str]]:
         with self.lock:
             for item in reversed(self.logs):
@@ -423,6 +252,13 @@ class PttState:
     def all_logs(self) -> List[Dict[str, str]]:
         with self.lock:
             return [dict(item) for item in self.logs]
+
+    def room_from_active_call(self, call_id: str) -> Optional[str]:
+        with self.lock:
+            active = self.active_calls.get(call_id)
+            if not active:
+                return None
+            return active.get("room")
 
     def answer_file_for_question(self, question: str) -> str:
         q = (question or "").lower()
@@ -453,39 +289,8 @@ class DemoService:
     def start(self) -> None:
         self.esl_events.connect()
         self.esl_api.connect()
-        t_events = threading.Thread(target=self._event_loop, daemon=True)
-        t_events.start()
-        t_floor = threading.Thread(target=self._floor_watchdog_loop, daemon=True)
-        t_floor.start()
-
-    def _esl_api(self, command: str) -> str:
-        try:
-            return self.esl_api.api(command)
-        except Exception:
-            self.esl_api.connect()
-            return self.esl_api.api(command)
-
-    def _conference_member_mute(self, room: str, member_id: str, mute: bool) -> str:
-        action = "mute" if mute else "unmute"
-        cmd = f"conference {room} {action} {member_id}"
-        return self._esl_api(cmd)
-
-    def _sync_room_floor_policy(self, room: str) -> None:
-        members = self.state.room_member_ids(room)
-        holder_call_id = self.state.room_floor_holder(room)
-        for call_id, member_id in members.items():
-            should_mute = call_id != holder_call_id
-            try:
-                self._conference_member_mute(room=room, member_id=member_id, mute=should_mute)
-            except Exception:
-                continue
-
-    def _floor_watchdog_loop(self) -> None:
-        while not self.stop_event.is_set():
-            changed_rooms = self.state.expire_floors()
-            for room in changed_rooms:
-                self._sync_room_floor_policy(room)
-            time.sleep(1)
+        t = threading.Thread(target=self._event_loop, daemon=True)
+        t.start()
 
     def _event_loop(self) -> None:
         while not self.stop_event.is_set():
@@ -497,17 +302,9 @@ class DemoService:
                 if name == "CHANNEL_ANSWER":
                     self.state.on_answer(event)
                 elif name == "CHANNEL_HANGUP_COMPLETE":
-                    call_id = event.get("Unique-ID", "")
                     self.state.on_hangup(event)
-                    if call_id:
-                        release = self.state.release_floor_for_call(call_id=call_id, reason="hangup")
-                        room = release.get("room", "")
-                        if room:
-                            self._sync_room_floor_policy(room)
                 elif name == "DTMF":
                     self._on_dtmf(event)
-                elif name == "CUSTOM":
-                    self._on_custom(event)
             except Exception:
                 time.sleep(1)
                 try:
@@ -515,49 +312,11 @@ class DemoService:
                 except Exception:
                     time.sleep(2)
 
-    def _on_custom(self, event: Dict[str, str]) -> None:
-        if event.get("Event-Subclass", "") != CONF_SUBCLASS:
-            return
-        action = (event.get("Action", "") or "").lower()
-        room = event.get("Conference-Name", "")
-        call_id = event.get("Unique-ID", "") or event.get("Caller-Unique-ID", "")
-        member_id = event.get("Member-ID", "")
-        if action == "add-member":
-            self.state.add_conference_member(room=room, call_id=call_id, member_id=member_id)
-            self._sync_room_floor_policy(room)
-        elif action in ("del-member", "remove-member"):
-            released = self.state.remove_conference_member(room=room, call_id=call_id, member_id=member_id)
-            if released or room:
-                self._sync_room_floor_policy(room)
-
-    def _request_floor(self, call_id: str) -> Dict[str, str]:
-        result = self.state.request_floor_for_call(call_id=call_id)
-        room = result.get("room", "")
-        if room and result.get("result") in ("granted", "renewed"):
-            self._sync_room_floor_policy(room)
-        return result
-
-    def _release_floor(self, call_id: str, reason: str = "manual") -> Dict[str, str]:
-        result = self.state.release_floor_for_call(call_id=call_id, reason=reason)
-        room = result.get("room", "")
-        if room and result.get("result") == "released":
-            self._sync_room_floor_policy(room)
-        return result
-
     def _on_dtmf(self, event: Dict[str, str]) -> None:
         digit = event.get("DTMF-Digit", "")
-        call_id = event.get("Unique-ID", "")
-
-        if digit == PTT_FLOOR_REQUEST_DIGIT and call_id:
-            self._request_floor(call_id=call_id)
-            return
-
-        if digit == PTT_FLOOR_RELEASE_DIGIT and call_id:
-            self._release_floor(call_id=call_id, reason="dtmf")
-            return
-
         if digit not in ("1", "2", "3"):
             return
+        call_id = event.get("Unique-ID", "")
         room = self.state.room_from_active_call(call_id)
         if not room:
             return
@@ -571,7 +330,11 @@ class DemoService:
 
     def broadcast_file(self, room: str, file_path: str) -> str:
         cmd = f"conference {room} play {file_path}"
-        return self._esl_api(cmd)
+        try:
+            return self.esl_api.api(cmd)
+        except Exception:
+            self.esl_api.connect()
+            return self.esl_api.api(cmd)
 
 
 service = DemoService()
@@ -631,32 +394,3 @@ def bot_reply(req: BotReplyRequest) -> Dict[str, str]:
         "answer_file": str(answer_file),
         "freeswitch_result": result,
     }
-
-
-@app.get("/api/ptt/state")
-def ptt_state() -> List[Dict[str, str]]:
-    return service.state.ptt_state_all()
-
-
-@app.get("/api/ptt/state/{site}/{channel}")
-def ptt_state_by_room(site: int, channel: int) -> Dict[str, str]:
-    if site < 1 or site > 4 or channel < 1 or channel > 4:
-        raise HTTPException(status_code=400, detail="site/channel out of range")
-    room = service.room_name(site=site, channel=channel)
-    return service.state.ptt_state_by_room(room=room)
-
-
-@app.post("/api/ptt/floor/request")
-def ptt_floor_request(req: FloorControlRequest) -> Dict[str, str]:
-    result = service._request_floor(call_id=req.call_id)
-    if result.get("result") in ("call_not_found", "room_not_found"):
-        raise HTTPException(status_code=404, detail=result)
-    return result
-
-
-@app.post("/api/ptt/floor/release")
-def ptt_floor_release(req: FloorControlRequest) -> Dict[str, str]:
-    result = service._release_floor(call_id=req.call_id, reason="api")
-    if result.get("result") == "not_found":
-        raise HTTPException(status_code=404, detail=result)
-    return result

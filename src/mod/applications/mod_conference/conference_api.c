@@ -43,6 +43,7 @@
 
 
 api_command_t conference_api_sub_commands[] = {
+	{"canvas-auto-clear", (void_fn_t) & conference_api_sub_canvas_auto_clear, CONF_API_SUB_ARGS_SPLIT, "canvas-auto-clear", "<canvas_id> <true|false>"},
 	{"count", (void_fn_t) & conference_api_sub_count, CONF_API_SUB_ARGS_SPLIT, "count", ""},
 	{"list", (void_fn_t) & conference_api_sub_list, CONF_API_SUB_ARGS_SPLIT, "list", "[delim <string>]|[count]"},
 	{"xml_list", (void_fn_t) & conference_api_sub_xml_list, CONF_API_SUB_ARGS_SPLIT, "xml_list", ""},
@@ -88,6 +89,8 @@ api_command_t conference_api_sub_commands[] = {
 	{"undeaf", (void_fn_t) & conference_api_sub_undeaf, CONF_API_SUB_MEMBER_TARGET, "undeaf", "<[member_id|all]|last|non_moderator>"},
 	{"vid-filter", (void_fn_t) & conference_api_sub_video_filter, CONF_API_SUB_MEMBER_TARGET, "vid-filter", "<[member_id|all]|last|non_moderator> <string>"},
 	{"relate", (void_fn_t) & conference_api_sub_relate, CONF_API_SUB_ARGS_SPLIT, "relate", "<member_id>[,<member_id>] <other_member_id>[,<other_member_id>] [nospeak|nohear|clear]"},
+	{"getvar", (void_fn_t) & conference_api_sub_getvar, CONF_API_SUB_ARGS_SPLIT, "getvar", "<varname>"},
+	{"setvar", (void_fn_t) & conference_api_sub_setvar, CONF_API_SUB_ARGS_SPLIT, "setvar", "<varname> <value>"},
 	{"lock", (void_fn_t) & conference_api_sub_lock, CONF_API_SUB_ARGS_SPLIT, "lock", ""},
 	{"unlock", (void_fn_t) & conference_api_sub_unlock, CONF_API_SUB_ARGS_SPLIT, "unlock", ""},
 	{"dial", (void_fn_t) & conference_api_sub_dial, CONF_API_SUB_ARGS_SPLIT, "dial", "<endpoint_module_name>/<destination> <callerid number> <callerid name>"},
@@ -137,17 +140,17 @@ switch_status_t conference_api_sub_pause_play(conference_obj_t *conference, swit
 	}
 
 	if (argc == 3) {
-		uint32_t id = atoi(argv[2]);
+		const char * id = argv[2];
 		conference_member_t *member;
 
-		if ((member = conference_member_get(conference, id))) {
+		if ((member = conference_member_get_by_str(conference, id))) {
 			switch_mutex_lock(member->fnode_mutex);
 			conference_fnode_toggle_pause(member->fnode, stream);
 			switch_mutex_unlock(member->fnode_mutex);
 			switch_thread_rwlock_unlock(member->rwlock);
 			return SWITCH_STATUS_SUCCESS;
 		} else {
-			stream->write_function(stream, "-ERR Member: %u not found.\n", id);
+			stream->write_function(stream, "-ERR Member: %s not found.\n", id);
 		}
 	}
 
@@ -165,17 +168,17 @@ switch_status_t conference_api_sub_play_status(conference_obj_t *conference, swi
 	}
 
 	if (argc == 3) {
-		uint32_t id = atoi(argv[2]);
+		const char *id = argv[2];
 		conference_member_t *member;
 
-		if ((member = conference_member_get(conference, id))) {
+		if ((member = conference_member_get_by_str(conference, id))) {
 			switch_mutex_lock(member->fnode_mutex);
 			conference_fnode_check_status(member->fnode, stream);
 			switch_mutex_unlock(member->fnode_mutex);
 			switch_thread_rwlock_unlock(member->rwlock);
 			return SWITCH_STATUS_SUCCESS;
 		} else {
-			stream->write_function(stream, "-ERR Member: %u not found.\n", id);
+			stream->write_function(stream, "-ERR Member: %s not found.\n", id);
 		}
 	}
 
@@ -299,6 +302,7 @@ switch_status_t conference_api_sub_syntax(char **syntax)
 			}
 		} else {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Couldn't realloc\n");
+			switch_safe_free(p);
 			return SWITCH_STATUS_TERM;
 		}
 	}
@@ -512,7 +516,7 @@ switch_status_t conference_api_sub_conference_video_vmute_snap(conference_member
 	}
 
 	if (!member->conference->canvases[0]) {
-		stream->write_function(stream, "-ERR Conference is not in mixing mode\n");
+		if (stream) stream->write_function(stream, "-ERR Conference is not in mixing mode\n");
 		return SWITCH_STATUS_SUCCESS;
 	}
 
@@ -530,6 +534,48 @@ switch_status_t conference_api_sub_conference_video_vmute_snap(conference_member
 	}
 
 	conference_video_vmute_snap(member, clear);
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+switch_status_t conference_api_sub_canvas_auto_clear(conference_obj_t *conference, switch_stream_handle_t *stream, int argc, char **argv)
+{
+	int canvas_id_start = 0;
+	int canvas_id_end   = 0;
+	int i = 0;
+
+	if (argc < 3) {
+		stream->write_function(stream, "+OK");
+
+		for (i = 0; i < conference->canvas_count; i++) {
+			stream->write_function(stream, " canvas %d auto_clear=%s", i + 1, conference->canvases[i]->disable_auto_clear ? "false" : "true");
+		}
+
+		stream->write_function(stream, "\n");
+		return SWITCH_STATUS_SUCCESS;
+	}
+
+	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s\n", argv[1]);
+
+	canvas_id_start = atoi(argv[2]);
+
+	if (canvas_id_start == 0) {
+		canvas_id_end = conference->canvas_count - 1;
+	} else {
+		canvas_id_start--;
+		canvas_id_end = canvas_id_start;
+	}
+
+	stream->write_function(stream, "+OK");
+	switch_mutex_lock(conference->canvas_mutex);
+
+	for (i = canvas_id_start; i<= canvas_id_end; i++) {
+		conference->canvases[i]->disable_auto_clear = !switch_true(argv[3]);
+		stream->write_function(stream, " canvas %d auto_clear=%s", i + 1, argv[3]);
+	}
+
+	switch_mutex_unlock(conference->canvas_mutex);
+	stream->write_function(stream, "\n");
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -974,12 +1020,12 @@ switch_status_t conference_api_sub_dtmf(conference_member_t *member, switch_stre
 	char *dtmf = (char *) data;
 
 	if (member == NULL) {
-		stream->write_function(stream, "-ERR Invalid member!\n");
+		if (stream != NULL) stream->write_function(stream, "-ERR Invalid member!\n");
 		return SWITCH_STATUS_GENERR;
 	}
 
 	if (zstr(dtmf)) {
-		stream->write_function(stream, "-ERR Invalid input!\n");
+		if (stream != NULL) stream->write_function(stream, "-ERR Invalid input!\n");
 		return SWITCH_STATUS_GENERR;
 	} else {
 		char *p;
@@ -1034,6 +1080,8 @@ switch_status_t conference_api_sub_watching_canvas(conference_member_t *member, 
 	member->conference->canvases[index]->send_keyframe = 10;
 	member->conference->canvases[index]->refresh = 1;
 	stream->write_function(stream, "+OK watching canvas %d\n", index + 1);
+
+	conference_member_update_status_field(member);
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -1170,7 +1218,9 @@ switch_status_t conference_api_sub_energy(conference_member_t *member, switch_st
 
 	if (member->auto_energy_level && member->energy_level > member->auto_energy_level) {
 		member->auto_energy_level  = 0;
-		stream->write_function(stream, "Auto-Energy level exceeded, Auto-Energy mode disabled\n", SWITCH_VA_NONE);
+		if (stream != NULL) {
+			stream->write_function(stream, "Auto-Energy level exceeded, Auto-Energy mode disabled\n", SWITCH_VA_NONE);
+		}
 	}
 
 
@@ -1224,15 +1274,6 @@ void conference_api_set_agc(conference_member_t *member, const char *data)
 
 		if (tmp > 0) {
 			member->agc_change_factor = tmp;
-		}
-	}
-
-
-	if (argv[2]) {
-		tmp = atoi(argv[0]);
-
-		if (tmp > 0) {
-			member->agc_period_len = (1000 / member->conference->interval) * tmp;
 		}
 	}
 
@@ -1365,7 +1406,7 @@ switch_status_t conference_api_sub_max_energy(conference_member_t *member, switc
 
 	if (member->max_energy_level && member->max_energy_level < member->energy_level) {
 		member->max_energy_level = 0;
-		stream->write_function(stream, "-ERR %u Max-Energy cannot exceed energy level.\n", member->id);
+		if (stream != NULL) stream->write_function(stream, "-ERR %u Max-Energy cannot exceed energy level.\n", member->id);
 	} else if (data) {
 		char *p, *q;
 		if ((p = strchr(data, ':'))) {
@@ -1656,10 +1697,7 @@ switch_status_t conference_api_sub_vid_bandwidth(conference_obj_t *conference, s
 	}
 
 	if (argv[4]) {
-
-		if (argv[4]) {
-			id = atoi(argv[4]);
-		}
+		id = atoi(argv[4]);
 
 		if (id < 1 || id > MAX_CANVASES+1) {
 			id = -1;
@@ -1685,7 +1723,7 @@ switch_status_t conference_api_sub_vid_bandwidth(conference_obj_t *conference, s
 	}
 
 	for (i = 0; i <= conference->canvas_count; i++) {
-		if (i > -1 && i != id - 1) {
+		if (i != id - 1) {
 			continue;
 		}
 
@@ -1768,15 +1806,14 @@ switch_status_t conference_api_sub_canvas_bgimg(conference_obj_t *conference, sw
 		return SWITCH_STATUS_SUCCESS;
 	}
 
-	if ((canvas = conference->canvases[idx])) {
-		switch_mutex_lock(canvas->mutex);
-		if (!strcasecmp(file, "clear")) {
-			conference_video_reset_image(canvas->img, &canvas->bgcolor);
-		} else {
-			status = conference_video_set_canvas_bgimg(canvas, file);
-		}
-		switch_mutex_unlock(canvas->mutex);
+	canvas = conference->canvases[idx];
+	switch_mutex_lock(canvas->mutex);
+	if (!strcasecmp(file, "clear")) {
+		conference_video_reset_image(canvas->img, &canvas->bgcolor);
+	} else {
+		status = conference_video_set_canvas_bgimg(canvas, file);
 	}
+	switch_mutex_unlock(canvas->mutex);
 
 	if (status == SWITCH_STATUS_SUCCESS) {
 		stream->write_function(stream, "+OK Set Bgimg %s\n", file);
@@ -1882,7 +1919,7 @@ switch_status_t conference_api_sub_vid_res(conference_obj_t *conference, switch_
 
 	}
 
-	if (id == 0 && conference->canvases[0]) id = 1;
+	if (id == 0) id = 1;
 
 	if (id > conference->canvas_count + 1) {
 		id = 1;
@@ -1914,7 +1951,7 @@ switch_status_t conference_api_sub_vid_fps(conference_obj_t *conference, switch_
 	fps = (float)atof(argv[2]);
 
 	if (conference_video_set_fps(conference, fps)) {
-		stream->write_function(stream, "+OK FPS set to [%s]\n", argv[2]);
+		stream->write_function(stream, "+OK FPS set to [%0.2f]\n", conference->video_fps.fps);
 	} else {
 		stream->write_function(stream, "-ERR Invalid FPS [%s]\n", argv[2]);
 	}
@@ -1983,7 +2020,6 @@ switch_status_t conference_api_sub_vid_layout(conference_obj_t *conference, swit
 	}
 
 	if (!strncasecmp(argv[2], "group", 5)) {
-		layout_group_t *lg = NULL;
 		int xx = 4;
 
 		if ((group_name = strchr(argv[2], ':'))) {
@@ -1997,7 +2033,7 @@ switch_status_t conference_api_sub_vid_layout(conference_obj_t *conference, swit
 			stream->write_function(stream, "-ERR Group name not specified.\n");
 			return SWITCH_STATUS_SUCCESS;
 		} else {
-			if (((lg = switch_core_hash_find(conference->layout_group_hash, group_name)))) {
+			if (switch_core_hash_find(conference->layout_group_hash, group_name)) {
 				if (conference_utils_test_flag(conference, CFLAG_PERSONAL_CANVAS)) {
 					stream->write_function(stream, "-ERR Change personal canvas to layout group [%s]\n", group_name);
 					conference->video_layout_group = switch_core_strdup(conference->pool, group_name);
@@ -2018,7 +2054,7 @@ switch_status_t conference_api_sub_vid_layout(conference_obj_t *conference, swit
 		}
 	}
 
-	if (!vlayout && (vlayout = switch_core_hash_find(conference->layout_hash, argv[2]))) {
+	if ((vlayout = switch_core_hash_find(conference->layout_hash, argv[2]))) {
 		if (argv[3]) {
 			if ((idx = atoi(argv[3]))) {
 				idx--;
@@ -2035,10 +2071,15 @@ switch_status_t conference_api_sub_vid_layout(conference_obj_t *conference, swit
 
 
 	if (conference_utils_test_flag(conference, CFLAG_PERSONAL_CANVAS)) {
-		stream->write_function(stream, "+OK Change personal canvas set to layout [%s]\n", vlayout->name);
-		switch_mutex_lock(conference->member_mutex);
-		conference->new_personal_vlayout = vlayout;
-		switch_mutex_unlock(conference->member_mutex);
+		if (vlayout) {
+			stream->write_function(stream, "+OK Change personal canvas set to layout [%s]\n", vlayout->name);
+			switch_mutex_lock(conference->member_mutex);
+			conference->new_personal_vlayout = vlayout;
+			switch_mutex_unlock(conference->member_mutex);
+		} else {
+			stream->write_function(stream, "-ERR no layout for personal canvas\n");
+			return SWITCH_STATUS_SUCCESS;
+		}
 	} else {
 
 		switch_mutex_lock(conference->canvases[idx]->mutex);
@@ -2478,7 +2519,6 @@ static void clear_role_id(conference_obj_t *conference, conference_member_t *mem
 switch_status_t conference_api_sub_vid_res_id(conference_obj_t *conference, switch_stream_handle_t *stream, int argc, char **argv)
 {
 	uint8_t all = 0, clear = 0, force = 0;
-	uint32_t member_id;
 	char *res_id = NULL;
 	conference_member_t *member;
 
@@ -2498,7 +2538,7 @@ switch_status_t conference_api_sub_vid_res_id(conference_obj_t *conference, swit
 	if (argc > 4)
 		force = strcasecmp(argv[4], "force") ? 0 : 1;
 
-	if (!(member_id = atoi(argv[2]))) {
+	if (!atoi(argv[2])) {
 		all = strcasecmp(argv[2], "all") ? 0 : 1;
 	}
 
@@ -2510,13 +2550,11 @@ switch_status_t conference_api_sub_vid_res_id(conference_obj_t *conference, swit
 			}
 		}
 		switch_mutex_unlock(conference->member_mutex);
-	} else if (member_id) {
-		if (!(member = conference_member_get(conference, member_id)))
+	} else {
+		if (!(member = conference_member_get_by_str(conference, argv[2])))
 			return SWITCH_STATUS_GENERR;
 		conference_api_sub_vid_res_id_member(member, stream, res_id, clear, force);
 		switch_thread_rwlock_unlock(member->rwlock);
-	} else {
-		return SWITCH_STATUS_GENERR;
 	}
 
 	return SWITCH_STATUS_SUCCESS;
@@ -2600,35 +2638,25 @@ switch_status_t conference_api_sub_vid_banner(conference_member_t *member, switc
 	mcu_layer_t *layer = NULL;
 	char *text = (char *) data;
 
-	if (member == NULL)
+	if (member == NULL) {
 		return SWITCH_STATUS_GENERR;
+	}
 
 	switch_url_decode(text);
 
-	if (!switch_channel_test_flag(member->channel, CF_VIDEO)) {
-		stream->write_function(stream, "-ERR Channel %s does not have video capability!\n", switch_channel_get_name(member->channel));
-		return SWITCH_STATUS_SUCCESS;
-	}
-
-	layer = conference_video_get_layer_locked(member);
-
-	if (!layer) {
-		stream->write_function(stream, "-ERR Channel %s is not in a video layer\n", switch_channel_get_name(member->channel));
-		goto end;
-	}
-
-	if (zstr(text)) {
-		stream->write_function(stream, "-ERR No text supplied\n", switch_channel_get_name(member->channel));
-		goto end;
-	}
+ 	if (zstr(text)) goto end;
 
 	member->video_banner_text = switch_core_strdup(member->pool, text);
 
+	layer = conference_video_get_layer_locked(member);
+
+	if (!layer) goto end;
+
 	conference_video_layer_set_banner(member, layer, NULL);
 
-	stream->write_function(stream, "+OK\n");
-
  end:
+
+	stream->write_function(stream, "+OK\n");
 
 	conference_video_release_layer(&layer);
 
@@ -2705,10 +2733,10 @@ switch_status_t conference_api_sub_file_seek(conference_obj_t *conference, switc
 	}
 
 	if (argc == 4) {
-		uint32_t id = atoi(argv[3]);
-		conference_member_t *member = conference_member_get(conference, id);
+		const char *id = argv[3];
+		conference_member_t *member = conference_member_get_by_str(conference, id);
 		if (member == NULL) {
-			stream->write_function(stream, "-ERR Member: %u not found.\n", id);
+			stream->write_function(stream, "-ERR Member: %s not found.\n", id);
 			return SWITCH_STATUS_GENERR;
 		}
 
@@ -2803,7 +2831,7 @@ switch_status_t conference_api_sub_play(conference_obj_t *conference, switch_str
 		}
 		ret_status = SWITCH_STATUS_SUCCESS;
 	} else if (argc >= 4) {
-		uint32_t id = atoi(argv[3]);
+		const char *id = argv[3];
 		conference_member_t *member;
 		switch_bool_t mux = SWITCH_TRUE;
 
@@ -2811,9 +2839,9 @@ switch_status_t conference_api_sub_play(conference_obj_t *conference, switch_str
 			mux = SWITCH_FALSE;
 		}
 
-		if ((member = conference_member_get(conference, id))) {
+		if ((member = conference_member_get_by_str(conference, id))) {
 			if (conference_member_play_file(member, argv[2], 0, mux) == SWITCH_STATUS_SUCCESS) {
-				stream->write_function(stream, "+OK (play) Playing file %s to member %u\n", argv[2], id);
+				stream->write_function(stream, "+OK (play) Playing file %s to member %u\n", argv[2], member->id);
 				if (test_eflag(conference, EFLAG_PLAY_FILE_MEMBER) &&
 					switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM, CONF_EVENT_MAINT) == SWITCH_STATUS_SUCCESS) {
 					conference_member_add_event_data(member, event);
@@ -2869,7 +2897,7 @@ switch_status_t conference_api_sub_saymember(conference_obj_t *conference, switc
 	char *expanded = NULL;
 	char *start_text = NULL;
 	char *workspace = NULL;
-	uint32_t id = 0;
+	const char *id = NULL;
 	conference_member_t *member = NULL;
 	switch_event_t *event;
 
@@ -2888,15 +2916,15 @@ switch_status_t conference_api_sub_saymember(conference_obj_t *conference, switc
 		text = start_text;
 	}
 
-	id = atoi(workspace);
+	id = workspace;
 
 	if (!id || zstr(text)) {
 		stream->write_function(stream, "-ERR (saymember) No Text!\n");
 		goto done;
 	}
 
-	if (!(member = conference_member_get(conference, id))) {
-		stream->write_function(stream, "-ERR (saymember) Unknown Member %u!\n", id);
+	if (!(member = conference_member_get_by_str(conference, id))) {
+		stream->write_function(stream, "-ERR (saymember) Unknown Member %s!\n", id);
 		goto done;
 	}
 
@@ -2911,7 +2939,7 @@ switch_status_t conference_api_sub_saymember(conference_obj_t *conference, switc
 		goto done;
 	}
 
-	stream->write_function(stream, "-ERR (saymember) OK\n");
+	stream->write_function(stream, "+OK (saymember) OK\n");
 	if (test_eflag(member->conference, EFLAG_SPEAK_TEXT_MEMBER) &&
 		switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM, CONF_EVENT_MAINT) == SWITCH_STATUS_SUCCESS) {
 		conference_member_add_event_data(member, event);
@@ -2964,7 +2992,6 @@ switch_status_t conference_api_sub_cam(conference_obj_t *conference, switch_stre
 					
 					if (p) {
 						*p++ = '\0';
-						if (!p) p = "";
 						
 						if (!strcasecmp(argv[x], "zoom") || !strcasecmp(argv[x], "pan")) {
 							str_arg = p;
@@ -3207,15 +3234,15 @@ switch_status_t conference_api_sub_stop(conference_obj_t *conference, switch_str
 		return SWITCH_STATUS_GENERR;
 
 	if (argc == 4) {
-		uint32_t id = atoi(argv[3]);
+		const char *id = argv[3];
 		conference_member_t *member;
 
-		if ((member = conference_member_get(conference, id))) {
+		if ((member = conference_member_get_by_str(conference, id))) {
 			uint32_t stopped = conference_member_stop_file(member, async ? FILE_STOP_ASYNC : current ? FILE_STOP_CURRENT : FILE_STOP_ALL);
 			stream->write_function(stream, "+OK Stopped %u files.\n", stopped);
 			switch_thread_rwlock_unlock(member->rwlock);
 		} else {
-			stream->write_function(stream, "-ERR Member: %u not found.\n", id);
+			stream->write_function(stream, "-ERR Member: %s not found.\n", id);
 		}
 	} else {
 		uint32_t stopped = conference_file_stop(conference, async ? FILE_STOP_ASYNC : current ? FILE_STOP_CURRENT : FILE_STOP_ALL);
@@ -3403,6 +3430,30 @@ switch_status_t conference_api_sub_relate(conference_obj_t *conference, switch_s
 	switch_safe_free(lbuf_members);
 	switch_safe_free(lbuf_other_members);
 	switch_safe_free(action);
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+switch_status_t conference_api_sub_getvar(conference_obj_t *conference, switch_stream_handle_t *stream, int argc, char **argv)
+{
+	const char *val = NULL;
+	const char *var = argv[2];
+
+	if (var) val = conference_get_variable(conference, var);
+
+	stream_write(stream, "%s", switch_str_nil(val));
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+switch_status_t conference_api_sub_setvar(conference_obj_t *conference, switch_stream_handle_t *stream, int argc, char **argv)
+{
+	const char *val = argv[3];
+	const char *var = argv[2];
+
+	if (var) conference_set_variable(conference, var, val);
+
+	stream_write(stream, "+OK\n", VA_NONE);
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -3612,7 +3663,6 @@ switch_status_t conference_api_sub_transfer(conference_obj_t *conference, switch
 {
 	switch_status_t ret_status = SWITCH_STATUS_SUCCESS;
 	char *conference_name = NULL, *profile_name;
-	switch_event_t *params = NULL;
 
 	switch_assert(conference != NULL);
 	switch_assert(stream != NULL);
@@ -3621,6 +3671,7 @@ switch_status_t conference_api_sub_transfer(conference_obj_t *conference, switch
 		int x;
 
 		conference_name = strdup(argv[2]);
+		switch_assert(conference_name);
 
 		if ((profile_name = strchr(conference_name, '@'))) {
 			*profile_name++ = '\0';
@@ -3630,13 +3681,13 @@ switch_status_t conference_api_sub_transfer(conference_obj_t *conference, switch
 
 		for (x = 3; x < argc; x++) {
 			conference_member_t *member = NULL;
-			uint32_t id = atoi(argv[x]);
+			const char *id = argv[x];
 			switch_channel_t *channel;
 			switch_event_t *event;
 			char *xdest = NULL;
 
-			if (!id || !(member = conference_member_get(conference, id))) {
-				stream->write_function(stream, "-ERR No Member %u in conference %s.\n", id, conference->name);
+			if (!id || !(member = conference_member_get_by_str(conference, id))) {
+				stream->write_function(stream, "-ERR No Member %s in conference %s.\n", id, conference->name);
 				continue;
 			}
 
@@ -3662,10 +3713,6 @@ switch_status_t conference_api_sub_transfer(conference_obj_t *conference, switch
 		}
 	} else {
 		ret_status = SWITCH_STATUS_GENERR;
-	}
-
-	if (params) {
-		switch_event_destroy(&params);
 	}
 
 	switch_safe_free(conference_name);
@@ -4040,7 +4087,6 @@ switch_status_t conference_api_sub_set(conference_obj_t *conference,
 
 switch_status_t conference_api_sub_xml_list(conference_obj_t *conference, switch_stream_handle_t *stream, int argc, char **argv)
 {
-	int count = 0;
 	switch_hash_index_t *hi;
 	void *val;
 	switch_xml_t x_conference, x_conferences;
@@ -4059,7 +4105,6 @@ switch_status_t conference_api_sub_xml_list(conference_obj_t *conference, switch
 			x_conference = switch_xml_add_child_d(x_conferences, "conference", off++);
 			switch_assert(conference);
 
-			count++;
 			conference_xlist(conference, x_conference, off);
 
 		}
@@ -4067,7 +4112,7 @@ switch_status_t conference_api_sub_xml_list(conference_obj_t *conference, switch
 	} else {
 		x_conference = switch_xml_add_child_d(x_conferences, "conference", off++);
 		switch_assert(conference);
-		count++;
+
 		conference_xlist(conference, x_conference, off);
 	}
 
@@ -4197,6 +4242,7 @@ switch_status_t conference_api_dispatch(conference_obj_t *conference, switch_str
 						char *var, *val;
 
 						var = strdup(argv[argn + 1]);
+						switch_assert(var);
 
 						if ((val = strchr(var, '='))) {
 							*val++ = '\0';

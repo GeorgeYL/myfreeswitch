@@ -53,6 +53,10 @@ char *alloca ();
 #include <winsock.h>
 #include <io.h>
 
+#ifdef _MSC_VER
+#define min __min
+#endif
+
 #define S_ISREG(mode) (((mode) & _S_IFREG) == _S_IFREG)
 #define S_ISCHR(mode) (((mode) & _S_IFCHR) == _S_IFCHR)
 

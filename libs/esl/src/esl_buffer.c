@@ -58,14 +58,20 @@ ESL_DECLARE(esl_status_t) esl_buffer_create(esl_buffer_t **buffer, esl_size_t bl
 	if (new_buffer) {
 		memset(new_buffer, 0, sizeof(*new_buffer));
 
-		if (start_len) {
-			new_buffer->data = malloc(start_len);
-			if (!new_buffer->data) {
-				free(new_buffer);
-				return ESL_FAIL;
-			}
-			memset(new_buffer->data, 0, start_len);
+		if (!start_len) {
+			start_len = 250;
 		}
+
+		if (!blocksize) {
+			blocksize = start_len;
+		}
+		
+		new_buffer->data = malloc(start_len);
+		if (!new_buffer->data) {
+			free(new_buffer);
+			return ESL_FAIL;
+		}
+		memset(new_buffer->data, 0, start_len);
 
 		new_buffer->max_len = max_len;
 		new_buffer->datalen = start_len;
@@ -176,6 +182,7 @@ ESL_DECLARE(esl_size_t) esl_buffer_read(esl_buffer_t *buffer, void *data, esl_si
 
 	esl_assert(buffer != NULL);
 	esl_assert(data != NULL);
+	esl_assert(buffer->head != NULL);
 
 
 	if (buffer->used < 1) {
@@ -198,10 +205,12 @@ ESL_DECLARE(esl_size_t) esl_buffer_read(esl_buffer_t *buffer, void *data, esl_si
 
 ESL_DECLARE(esl_size_t) esl_buffer_packet_count(esl_buffer_t *buffer)
 {
-	char *pe, *p, *e, *head = (char *) buffer->head;
+	char *pe, *p, *e, *head;
 	esl_size_t x = 0;
 	
 	esl_assert(buffer != NULL);
+
+	head = (char *) buffer->head;
 
 	e = (head + buffer->used);
 
@@ -221,11 +230,13 @@ ESL_DECLARE(esl_size_t) esl_buffer_packet_count(esl_buffer_t *buffer)
 
 ESL_DECLARE(esl_size_t) esl_buffer_read_packet(esl_buffer_t *buffer, void *data, esl_size_t maxlen)
 {
-	char *pe, *p, *e, *head = (char *) buffer->head;
+	char *pe, *p, *e, *head;
 	esl_size_t datalen = 0;
 
 	esl_assert(buffer != NULL);
 	esl_assert(data != NULL);
+
+	head = (char *) buffer->head;
 
 	e = (head + buffer->used);
 

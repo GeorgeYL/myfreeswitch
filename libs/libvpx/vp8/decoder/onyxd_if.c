@@ -16,6 +16,7 @@
 #include "onyxd_int.h"
 #include "vpx_mem/vpx_mem.h"
 #include "vp8/common/alloccommon.h"
+#include "vp8/common/common.h"
 #include "vp8/common/loopfilter.h"
 #include "vp8/common/swapyv12buffer.h"
 #include "vp8/common/threading.h"
@@ -29,6 +30,7 @@
 #include "./vpx_scale_rtcd.h"
 #include "vpx_scale/vpx_scale.h"
 #include "vp8/common/systemdependent.h"
+#include "vpx_ports/system_state.h"
 #include "vpx_ports/vpx_once.h"
 #include "vpx_ports/vpx_timer.h"
 #include "detokenize.h"
@@ -40,7 +42,6 @@
 #endif
 
 extern void vp8_init_loop_filter(VP8_COMMON *cm);
-extern void vp8cx_init_de_quantizer(VP8D_COMP *pbi);
 static int get_free_fb(VP8_COMMON *cm);
 static void ref_cnt_fb(int *buf, int *idx, int new_idx);
 
@@ -321,21 +322,6 @@ int vp8dx_receive_compressed_data(VP8D_COMP *pbi, size_t size,
   pbi->dec_fb_ref[GOLDEN_FRAME] = &cm->yv12_fb[cm->gld_fb_idx];
   pbi->dec_fb_ref[ALTREF_FRAME] = &cm->yv12_fb[cm->alt_fb_idx];
 
-  if (setjmp(pbi->common.error.jmp)) {
-    /* We do not know if the missing frame(s) was supposed to update
-     * any of the reference buffers, but we act conservative and
-     * mark only the last buffer as corrupted.
-     */
-    cm->yv12_fb[cm->lst_fb_idx].corrupted = 1;
-
-    if (cm->fb_idx_ref_cnt[cm->new_fb_idx] > 0) {
-      cm->fb_idx_ref_cnt[cm->new_fb_idx]--;
-    }
-    goto decode_exit;
-  }
-
-  pbi->common.error.setjmp = 1;
-
   retcode = vp8_decode_frame(pbi);
 
   if (retcode < 0) {
@@ -344,6 +330,12 @@ int vp8dx_receive_compressed_data(VP8D_COMP *pbi, size_t size,
     }
 
     pbi->common.error.error_code = VPX_CODEC_ERROR;
+    // Propagate the error info.
+    if (pbi->mb.error_info.error_code != 0) {
+      pbi->common.error.error_code = pbi->mb.error_info.error_code;
+      memcpy(pbi->common.error.detail, pbi->mb.error_info.detail,
+             sizeof(pbi->mb.error_info.detail));
+    }
     goto decode_exit;
   }
 
@@ -352,7 +344,7 @@ int vp8dx_receive_compressed_data(VP8D_COMP *pbi, size_t size,
     goto decode_exit;
   }
 
-  vp8_clear_system_state();
+  vpx_clear_system_state();
 
   if (cm->show_frame) {
     cm->current_video_frame++;
@@ -382,8 +374,7 @@ int vp8dx_receive_compressed_data(VP8D_COMP *pbi, size_t size,
   pbi->last_time_stamp = time_stamp;
 
 decode_exit:
-  pbi->common.error.setjmp = 0;
-  vp8_clear_system_state();
+  vpx_clear_system_state();
   return retcode;
 }
 int vp8dx_get_raw_frame(VP8D_COMP *pbi, YV12_BUFFER_CONFIG *sd,
@@ -416,7 +407,7 @@ int vp8dx_get_raw_frame(VP8D_COMP *pbi, YV12_BUFFER_CONFIG *sd,
   }
 
 #endif /*!CONFIG_POSTPROC*/
-  vp8_clear_system_state();
+  vpx_clear_system_state();
   return ret;
 }
 
@@ -438,47 +429,39 @@ int vp8dx_references_buffer(VP8_COMMON *oci, int ref_frame) {
 }
 
 int vp8_create_decoder_instances(struct frame_buffers *fb, VP8D_CONFIG *oxcf) {
-  if (!fb->use_frame_threads) {
-    /* decoder instance for single thread mode */
-    fb->pbi[0] = create_decompressor(oxcf);
-    if (!fb->pbi[0]) return VPX_CODEC_ERROR;
+  /* decoder instance for single thread mode */
+  fb->pbi[0] = create_decompressor(oxcf);
+  if (!fb->pbi[0]) return VPX_CODEC_ERROR;
 
 #if CONFIG_MULTITHREAD
-    if (setjmp(fb->pbi[0]->common.error.jmp)) {
-      vp8_remove_decoder_instances(fb);
-      memset(fb->pbi, 0, sizeof(fb->pbi) / sizeof(fb->pbi[0]));
-      vp8_clear_system_state();
-      return VPX_CODEC_ERROR;
-    }
-
-    fb->pbi[0]->common.error.setjmp = 1;
-    fb->pbi[0]->max_threads = oxcf->max_threads;
-    vp8_decoder_create_threads(fb->pbi[0]);
-    fb->pbi[0]->common.error.setjmp = 0;
-#endif
-  } else {
-    /* TODO : create frame threads and decoder instances for each
-     * thread here */
+  if (setjmp(fb->pbi[0]->common.error.jmp)) {
+    vp8_remove_decoder_instances(fb);
+    vp8_zero(fb->pbi);
+    vpx_clear_system_state();
+    return VPX_CODEC_ERROR;
   }
 
+  fb->pbi[0]->common.error.setjmp = 1;
+  fb->pbi[0]->max_threads = oxcf->max_threads;
+  vp8_decoder_create_threads(fb->pbi[0]);
+  fb->pbi[0]->common.error.setjmp = 0;
+#endif
   return VPX_CODEC_OK;
 }
 
 int vp8_remove_decoder_instances(struct frame_buffers *fb) {
-  if (!fb->use_frame_threads) {
-    VP8D_COMP *pbi = fb->pbi[0];
+  VP8D_COMP *pbi = fb->pbi[0];
 
-    if (!pbi) return VPX_CODEC_ERROR;
+  if (!pbi) return VPX_CODEC_ERROR;
 #if CONFIG_MULTITHREAD
-    vp8_decoder_remove_threads(pbi);
+  vp8_decoder_remove_threads(pbi);
 #endif
 
-    /* decoder instance for single thread mode */
-    remove_decompressor(pbi);
-  } else {
-    /* TODO : remove frame threads and decoder instances for each
-     * thread here */
-  }
-
+  /* decoder instance for single thread mode */
+  remove_decompressor(pbi);
   return VPX_CODEC_OK;
+}
+
+int vp8dx_get_quantizer(const VP8D_COMP *pbi) {
+  return pbi->common.base_qindex;
 }

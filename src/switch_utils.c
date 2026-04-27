@@ -26,24 +26,39 @@
  * Anthony Minessale II <anthm@freeswitch.org>
  * Juan Jose Comellas <juanjo@comellas.org>
  * Seven Du <dujinfang@gmail.com>
- *
+ * Windy Wang <xiaofengcanyuexp@163.com>
  *
  * switch_utils.c -- Compatibility and Helper Code
  *
  */
 
 #include <switch.h>
+#include "private/switch_apr_pvt.h"
 #ifndef WIN32
 #include <arpa/inet.h>
 #if defined(HAVE_SYS_TIME_H) && defined(HAVE_SYS_RESOURCE_H)
 #include <sys/time.h>
 #include <sys/resource.h>
 #endif
+#include <sys/types.h>
+#include <unistd.h>
+#else
+#include <intsafe.h> /* SIZETMult() */
+ /* process.h is required for _getpid() */
+#include <process.h>
 #endif
 #include "private/switch_core_pvt.h"
 #define ESCAPE_META '\\'
 #ifdef SWITCH_HAVE_GUMBO
 #include "gumbo.h"
+#endif
+
+#if defined(HAVE_OPENSSL)
+#include <openssl/evp.h>
+#endif
+
+#ifdef __GLIBC__
+#include <malloc.h> /* mallinfo() */
 #endif
 
 struct switch_network_node {
@@ -65,6 +80,11 @@ struct switch_network_list {
 	switch_memory_pool_t *pool;
 	char *name;
 };
+
+SWITCH_DECLARE(void *) switch_calloc(size_t nmemb, size_t size)
+{
+	return calloc(nmemb, size);
+}
 
 #ifndef WIN32
 SWITCH_DECLARE(int) switch_inet_pton(int af, const char *src, void *dst)
@@ -119,13 +139,10 @@ struct switch_frame_buffer_s {
 static switch_frame_t *find_free_frame(switch_frame_buffer_t *fb, switch_frame_t *orig)
 {
 	switch_frame_node_t *np;
-	int x = 0;
 
 	switch_mutex_lock(fb->mutex);
 
 	for (np = fb->head; np; np = np->next) {
-		x++;
-
 		if (!np->inuse && ((orig->packet && np->frame->packet) || (!orig->packet && !np->frame->packet))) {
 
 			if (np == fb->head) {
@@ -265,6 +282,11 @@ SWITCH_DECLARE(switch_status_t) switch_frame_buffer_trypop(switch_frame_buffer_t
 	return switch_queue_trypop(fb->queue, ptr);
 }
 
+SWITCH_DECLARE(int) switch_frame_buffer_size(switch_frame_buffer_t *fb)
+{
+	return switch_queue_size(fb->queue);
+}
+
 SWITCH_DECLARE(switch_status_t) switch_frame_buffer_destroy(switch_frame_buffer_t **fbP)
 {
 	switch_frame_buffer_t *fb = *fbP;
@@ -312,6 +334,7 @@ SWITCH_DECLARE(switch_status_t) switch_frame_dup(switch_frame_t *orig, switch_fr
 
 	if (orig->packet) {
 		new_frame->packet = malloc(SWITCH_RTP_MAX_BUF_LEN);
+		switch_assert(new_frame->packet);
 		memcpy(new_frame->packet, orig->packet, orig->packetlen);
 		new_frame->data = ((unsigned char *)new_frame->packet) + 12;
 	} else {
@@ -724,7 +747,7 @@ SWITCH_DECLARE(int) switch_parse_cidr(const char *string, ip_t *ip, ip_t *mask, 
 	ip_t *maskv = mask;
 	ip_t *ipv = ip;
 
-	switch_copy_string(host, string, sizeof(host)-1);
+	switch_copy_string(host, string, sizeof(host) - 1);
 	bit_str = strchr(host, '/');
 
 	if (!bit_str) {
@@ -735,22 +758,20 @@ SWITCH_DECLARE(int) switch_parse_cidr(const char *string, ip_t *ip, ip_t *mask, 
 	bits = atoi(bit_str);
 	ipv6 = strchr(string, ':');
 	if (ipv6) {
-		int i,n;
+		int32_t i, n;
+		uint32_t k;
+
 		if (bits < 0 || bits > 128) {
 			return -2;
 		}
+
 		bits = atoi(bit_str);
 		switch_inet_pton(AF_INET6, host, (unsigned char *)ip);
-		for (n=bits,i=0 ;i < 16; i++){
-			if (n >= 8) {
-				maskv->v6.s6_addr[i] = 0xFF;
-				n -= 8;
-			} else if (n < 8) {
-				maskv->v6.s6_addr[i] = 0xFF & ~(0xFF >> n);
-				n -= n;
-			} else if (n == 0) {
-				maskv->v6.s6_addr[i] = 0x00;
-			}
+
+		for (n = bits, i = 0; i < 16; i++) {
+			k = (n > 8) ? 8 : n;
+			maskv->v6.s6_addr[i] = 0xFF & ~(0xFF >> k);	/* k = 0 gives 0x00, k = 8 gives 0xFF */
+			n -= k;
 		}
 	} else {
 		if (bits < 0 || bits > 32) {
@@ -763,6 +784,7 @@ SWITCH_DECLARE(int) switch_parse_cidr(const char *string, ip_t *ip, ip_t *mask, 
 
 		maskv->v4 = 0xFFFFFFFF & ~(0xFFFFFFFF >> bits);
 	}
+
 	*bitp = bits;
 
 	return 0;
@@ -1065,7 +1087,7 @@ SWITCH_DECLARE(switch_size_t) switch_b64_decode(const char *in, char *out, switc
 
 		while (l >= 8) {
 			op[ol++] = (char) ((b >> (l -= 8)) % 256);
-			if (ol >= olen - 2) {
+			if (ol >= olen - 1) {
 				goto end;
 			}
 		}
@@ -1108,13 +1130,15 @@ SWITCH_DECLARE(switch_bool_t) switch_simple_email(const char *to,
 	switch_bool_t rval = SWITCH_FALSE;
 	const char *err = NULL;
 
+	filename[0] = '\0';
+
 	if (zstr(to)) {
 		err = "No to address specified";
 		goto end;
 	}
 
 	if (!zstr(file) && !zstr(convert_cmd) && !zstr(convert_ext)) {
-		if ((ext = strrchr(file, '.'))) {
+		if (strrchr(file, '.')) {
 			dupfile = strdup(file);
 			if ((ext = strrchr(dupfile, '.'))) {
 				*ext++ = '\0';
@@ -1136,7 +1160,7 @@ SWITCH_DECLARE(switch_bool_t) switch_simple_email(const char *to,
 		switch_safe_free(dupfile);
 	}
 
-	switch_snprintf(filename, 80, "%s%smail.%d%04x", SWITCH_GLOBAL_dirs.temp_dir, SWITCH_PATH_SEPARATOR, (int) switch_epoch_time_now(NULL), rand() & 0xffff);
+	switch_snprintf(filename, 80, "%s%smail.%d%04x", SWITCH_GLOBAL_dirs.temp_dir, SWITCH_PATH_SEPARATOR, (int)(switch_time_t) switch_epoch_time_now(NULL), switch_rand() & 0xffff);
 
 	if ((fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644)) > -1) {
 		if (file) {
@@ -1303,7 +1327,7 @@ SWITCH_DECLARE(switch_bool_t) switch_simple_email(const char *to,
 		close(fd);
 	}
 
-	if (unlink(filename) != 0) {
+	if (!zstr_buf(filename) && unlink(filename) != 0) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Failed to delete file [%s]\n", filename);
 	}
 
@@ -1582,6 +1606,30 @@ SWITCH_DECLARE(char *) switch_separate_paren_args(char *str)
 	return args;
 }
 
+SWITCH_DECLARE(switch_bool_t) switch_is_uint_in_range(const char *str, unsigned int from, unsigned int to)
+{
+	unsigned int number;
+	const char *original_str = str;
+
+	if (str == NULL || *str == '\0' || from > to) {
+		return SWITCH_FALSE;
+	}
+
+	for (; *str != '\0'; str++) {
+		if (!isdigit(*str)) {
+			return SWITCH_FALSE;
+		}
+	}
+
+	number = atoi(original_str);
+
+	if (number < from || number > to) {
+		return SWITCH_FALSE;
+	}
+
+	return SWITCH_TRUE;
+}
+
 SWITCH_DECLARE(switch_bool_t) switch_is_number(const char *str)
 {
 	const char *p;
@@ -1792,9 +1840,8 @@ SWITCH_DECLARE(switch_status_t) switch_resolve_host(const char *host, char *buf,
 {
 
 	struct addrinfo *ai;
-	int err;
 
-	if ((err = getaddrinfo(host, 0, 0, &ai))) {
+	if (getaddrinfo(host, 0, 0, &ai)) {
 		return SWITCH_STATUS_FALSE;
 	}
 
@@ -1968,7 +2015,7 @@ SWITCH_DECLARE(switch_status_t) switch_find_local_ip(char *buf, int len, int *ma
 	}
 
   doh:
-	if (tmp_socket > 0) {
+	if (tmp_socket >= 0) {
 		close(tmp_socket);
 	}
 #endif
@@ -2322,7 +2369,7 @@ SWITCH_DECLARE(int) get_addr_int(switch_sockaddr_t *sa)
 	return ntohs((unsigned short) s->sin_addr.s_addr);
 }
 
-SWITCH_DECLARE(int) switch_cmp_addr(switch_sockaddr_t *sa1, switch_sockaddr_t *sa2)
+SWITCH_DECLARE(int) switch_cmp_addr(switch_sockaddr_t *sa1, switch_sockaddr_t *sa2, switch_bool_t ip_only)
 {
 	struct sockaddr_in *s1;
 	struct sockaddr_in *s2;
@@ -2350,17 +2397,21 @@ SWITCH_DECLARE(int) switch_cmp_addr(switch_sockaddr_t *sa1, switch_sockaddr_t *s
 
 	switch (ss1->sa_family) {
 	case AF_INET:
-		return (s1->sin_addr.s_addr == s2->sin_addr.s_addr && s1->sin_port == s2->sin_port);
+		if (ip_only) {
+			return (s1->sin_addr.s_addr == s2->sin_addr.s_addr);
+		} else {
+			return (s1->sin_addr.s_addr == s2->sin_addr.s_addr && s1->sin_port == s2->sin_port);
+		}
 	case AF_INET6:
-		if (s16->sin6_addr.s6_addr && s26->sin6_addr.s6_addr) {
+		{
 			int i;
 
-			if (s16->sin6_port != s26->sin6_port)
-				return 0;
+			if (!ip_only) {
+				if (s16->sin6_port != s26->sin6_port) return 0;
+			}
 
 			for (i = 0; i < 4; i++) {
-				if (*((int32_t *) s16->sin6_addr.s6_addr + i) != *((int32_t *) s26->sin6_addr.s6_addr + i))
-					return 0;
+				if (*((int32_t *) s16->sin6_addr.s6_addr + i) != *((int32_t *) s26->sin6_addr.s6_addr + i)) return 0;
 			}
 
 			return 1;
@@ -2406,7 +2457,7 @@ SWITCH_DECLARE(int) switch_cp_addr(switch_sockaddr_t *sa1, switch_sockaddr_t *sa
 
 		return 1;
 	case AF_INET6:
-		if (s16->sin6_addr.s6_addr && s26->sin6_addr.s6_addr) {
+		{
 			int i;
 
 			s16->sin6_port = s26->sin6_port;
@@ -2659,7 +2710,7 @@ static char *cleanup_separated_string(char *str, char delim)
 			}
 		}
 		if (!esc) {
-			if (*ptr == '\'' && (inside_quotes || ((ptr+1) && strchr(ptr+1, '\'')))) {
+			if (*ptr == '\'' && (inside_quotes || strchr(ptr+1, '\''))) {
 				if ((inside_quotes = (1 - inside_quotes))) {
 					end = dest;
 				}
@@ -2722,7 +2773,7 @@ static unsigned int separate_string_char_delim(char *buf, char delim, char **arr
 			/* escaped characters are copied verbatim to the destination string */
 			if (*ptr == ESCAPE_META) {
 				++ptr;
-			} else if (*ptr == '\'' && (inside_quotes || ((ptr+1) && strchr(ptr+1, '\'')))) {
+			} else if (*ptr == '\'' && (inside_quotes || strchr(ptr+1, '\''))) {
 				inside_quotes = (1 - inside_quotes);
 			} else if (*ptr == delim && !inside_quotes) {
 				*ptr = '\0';
@@ -2811,7 +2862,7 @@ SWITCH_DECLARE(unsigned int) switch_separate_string(char *buf, char delim, char 
 	if (*buf == '^' && *(buf+1) == '^') {
 		char *p = buf + 2;
 
-		if (p && *p && *(p+1)) {
+		if (*p && *(p+1)) {
 			buf = p;
 			delim = *buf++;
 		}
@@ -3058,6 +3109,7 @@ SWITCH_DECLARE(int) switch_wait_socklist(switch_waitlist_t *waitlist, uint32_t l
 	int s = 0, r = 0, i;
 
 	pfds = calloc(len, sizeof(struct pollfd));
+	switch_assert(pfds);
 
 	for (i = 0; i < len; i++) {
 		if (waitlist[i].sock == SWITCH_SOCK_INVALID) {
@@ -3212,7 +3264,7 @@ SWITCH_DECLARE(int) switch_wait_sock(switch_os_socket_t sock, uint32_t ms, switc
 	}
 
 	tv.tv_sec = ms / 1000;
-	tv.tv_usec = (ms % 1000) * ms;
+	tv.tv_usec = (ms % 1000) * 1000;
 
 	s = select(sock + 1, (flags & SWITCH_POLL_READ) ? rfds : NULL, (flags & SWITCH_POLL_WRITE) ? wfds : NULL, (flags & SWITCH_POLL_ERROR) ? efds : NULL, &tv);
 
@@ -3318,7 +3370,7 @@ SWITCH_DECLARE(int) switch_wait_socklist(switch_waitlist_t *waitlist, uint32_t l
 	}
 
 	tv.tv_sec = ms / 1000;
-	tv.tv_usec = (ms % 1000) * ms;
+	tv.tv_usec = (ms % 1000) * 1000;
 
 	s = select(max_fd + 1, (flags & SWITCH_POLL_READ) ? rfds : NULL, (flags & SWITCH_POLL_WRITE) ? wfds : NULL, (flags & SWITCH_POLL_ERROR) ? efds : NULL, &tv);
 
@@ -3387,10 +3439,12 @@ SWITCH_DECLARE(char *) switch_core_url_encode_opt(switch_memory_pool_t *pool, co
 	const char hex[] = "0123456789ABCDEF";
 	switch_size_t len = 0;
 	switch_size_t slen = 0;
-	const char *p, *e = end_of_p(url);
+	const char *p, *e;
 
 	if (!url) return NULL;
 	if (!pool) return NULL;
+
+	e = end_of_p(url);
 
 	for (p = url; *p; p++) {
 		int ok = 0;
@@ -3474,7 +3528,7 @@ SWITCH_DECLARE(char *) switch_url_decode(char *s)
 	char *o;
 	unsigned int tmp;
 
-	if (zstr(s)) {
+	if (zstr(s) || !strchr(s, '%')) {
 		return s;
 	}
 
@@ -3507,13 +3561,13 @@ SWITCH_DECLARE(void) switch_split_time(const char *exp, int *hour, int *min, int
 		} else {
 			ssec = "00";
 		}
-		if (hour && shour) {
+		if (hour) {
 			*hour = atol(shour);
 		}
-		if (min && smin) {
+		if (min) {
 			*min = atol(smin);
 		}
-		if (sec && ssec) {
+		if (sec) {
 			*sec = atol(ssec);
 		}
 
@@ -3537,13 +3591,13 @@ SWITCH_DECLARE(void) switch_split_date(const char *exp, int *year, int *month, i
 		*smonth++ = '\0';
 		if ((sday=strchr(smonth, '-'))) {
 			*sday++ = '\0';
-			if (year && syear) {
+			if (year) {
 				*year = atol(syear);
 			}
-			if (month && smonth) {
+			if (month) {
 				*month = atol(smonth);
 			}
-			if (day && sday) {
+			if (day) {
 				*day = atol(sday);
 			}
 		}
@@ -3923,7 +3977,7 @@ SWITCH_DECLARE(switch_bool_t) switch_dow_cmp(const char *exp, int val)
 	while ((cur = _dow_read_token(&p)) != DOW_EOF) {
 		if (cur == DOW_COMA) {
 			/* Reset state */
-			cur = prev = DOW_EOF;
+			cur = DOW_EOF;
 		} else if (cur == DOW_HYPHEN) {
 			/* Save the previous token and move to the next one */
 			range_start = prev;
@@ -4157,11 +4211,12 @@ SWITCH_DECLARE(void) switch_http_parse_qs(switch_http_request_t *request, char *
 	char *q;
 	char *next;
 	char *name, *val;
+	char *dup = NULL;
 
 	if (qs) {
 		q = qs;
 	} else { /*parse our own qs, dup to avoid modify the original string */
-		q = strdup(request->qs);
+		dup = q = strdup(request->qs);
 	}
 
 	switch_assert(q);
@@ -4188,9 +4243,7 @@ SWITCH_DECLARE(void) switch_http_parse_qs(switch_http_request_t *request, char *
 		q = next;
 	} while (q);
 
-	if (!qs) {
-		switch_safe_free(q);
-	}
+	switch_safe_free(dup);
 }
 
 /* clean the uri to protect us from vulnerability attack */
@@ -4258,12 +4311,11 @@ SWITCH_DECLARE(switch_status_t) switch_http_parse_header(char *buffer, uint32_t 
 	}
 
 	request->_buffer = strdup(buffer);
+	switch_assert(request->_buffer);
 	request->method = request->_buffer;
 	request->bytes_buffered = datalen;
-	if (body) {
-		request->bytes_header = body - buffer;
-		request->bytes_read = body - buffer;
-	}
+	request->bytes_header = body - buffer;
+	request->bytes_read = body - buffer;
 
 	p = strchr(request->method, ' ');
 
@@ -4515,13 +4567,310 @@ SWITCH_DECLARE(char *)switch_html_strip(const char *str)
 	text = (char *)stream.data;
 #else
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Support for html parser is not compiled.\n");
-	text = strdup(html);
+	text = switch_safe_strdup(html);
 #endif
 
 	return text;
 }
 
+SWITCH_DECLARE(unsigned long) switch_getpid(void)
+{
+#ifndef WIN32
+	pid_t pid = getpid();
+#else
+	int pid = _getpid();
+#endif
 
+	return (unsigned long)pid;
+}
+
+SWITCH_DECLARE(switch_status_t) switch_digest(const char *digest_name, unsigned char **digest, const void *input, switch_size_t inputLen, unsigned int *outputlen)
+{
+#if defined(HAVE_OPENSSL)
+	EVP_MD_CTX *mdctx;
+	const EVP_MD *md;
+	int size;
+
+	switch_assert(digest);
+
+	if (!digest_name) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Message digest is not set\n");
+		return SWITCH_STATUS_FALSE;
+	}
+
+	md = EVP_get_digestbyname(digest_name);
+
+	if (!md) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Unknown message digest %s\n", digest_name);			
+		return SWITCH_STATUS_FALSE;
+	}
+
+	size = EVP_MD_size(md);
+	if (!size || !(*digest = malloc(size))) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Zero digest size or can't allocate memory to store results %s\n", digest_name);
+		return SWITCH_STATUS_FALSE;
+	}
+
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	mdctx = EVP_MD_CTX_new();
+#else
+	mdctx = EVP_MD_CTX_create();
+#endif
+
+	if (!mdctx) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "EVP_MD_CTX_new error\n");
+		switch_safe_free(*digest);
+		return SWITCH_STATUS_FALSE;
+	}
+
+	EVP_MD_CTX_init(mdctx);
+	EVP_DigestInit_ex(mdctx, md, NULL);
+	EVP_DigestUpdate(mdctx, input, inputLen);
+	EVP_DigestFinal_ex(mdctx, *digest, outputlen);
+
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	EVP_MD_CTX_free(mdctx);
+#else
+	EVP_MD_CTX_destroy(mdctx);
+#endif
+
+	return SWITCH_STATUS_SUCCESS;
+#else
+	return SWITCH_STATUS_FALSE;
+#endif
+}
+
+SWITCH_DECLARE(switch_status_t) switch_digest_string(const char *digest_name, char **digest_str, const void *input, switch_size_t inputLen, unsigned int *outputlen)
+{
+	unsigned char *digest = NULL;
+	switch_status_t status;
+	short i = 0, x;
+	uint8_t b;
+
+	status = switch_digest(digest_name, &digest, input, inputLen, outputlen);
+
+	if (status == SWITCH_STATUS_SUCCESS) {
+		if ((*digest_str = malloc(*outputlen * 2 + 1))) {
+			for (x = i = 0; x < *outputlen; x++) {
+				b = (digest[x] >> 4) & 15;
+				(*digest_str)[i++] = b + (b > 9 ? 'a' - 10 : '0');
+				b = digest[x] & 15;
+				(*digest_str)[i++] = b + (b > 9 ? 'a' - 10 : '0');
+			}
+
+			(*digest_str)[i] = '\0';
+		} else {
+			switch_safe_free(digest);
+			*outputlen = 0;
+			return SWITCH_STATUS_FALSE;
+		}
+	}
+
+	switch_safe_free(digest);
+	*outputlen = i;
+
+	return status;
+}
+
+SWITCH_DECLARE(char *) switch_must_strdup(const char *_s)
+{
+	char *s = strdup(_s);
+	switch_assert(s);
+	return s;
+}
+
+SWITCH_DECLARE(const char *) switch_memory_usage_stream(switch_stream_handle_t *stream)
+{
+	const char *status = NULL;
+#ifdef __GLIBC__
+/*
+ *  The mallinfo2() function was added in glibc 2.33.
+ *  https://man7.org/linux/man-pages/man3/mallinfo.3.html
+ */
+#if defined(__GLIBC_PREREQ) && __GLIBC_PREREQ(2, 33)
+	struct mallinfo2 mi;
+
+	mi = mallinfo2();
+
+	stream->write_function(stream, "Total non-mmapped bytes (arena):       %" SWITCH_SIZE_T_FMT "\n", mi.arena);
+	stream->write_function(stream, "# of free chunks (ordblks):            %" SWITCH_SIZE_T_FMT "\n", mi.ordblks);
+	stream->write_function(stream, "# of free fastbin blocks (smblks):     %" SWITCH_SIZE_T_FMT "\n", mi.smblks);
+	stream->write_function(stream, "# of mapped regions (hblks):           %" SWITCH_SIZE_T_FMT "\n", mi.hblks);
+	stream->write_function(stream, "Bytes in mapped regions (hblkhd):      %" SWITCH_SIZE_T_FMT "\n", mi.hblkhd);
+	stream->write_function(stream, "Max. total allocated space (usmblks):  %" SWITCH_SIZE_T_FMT "\n", mi.usmblks);
+	stream->write_function(stream, "Free bytes held in fastbins (fsmblks): %" SWITCH_SIZE_T_FMT "\n", mi.fsmblks);
+	stream->write_function(stream, "Total allocated space (uordblks):      %" SWITCH_SIZE_T_FMT "\n", mi.uordblks);
+	stream->write_function(stream, "Total free space (fordblks):           %" SWITCH_SIZE_T_FMT "\n", mi.fordblks);
+	stream->write_function(stream, "Topmost releasable block (keepcost):   %" SWITCH_SIZE_T_FMT "\n", mi.keepcost);
+#else
+	struct mallinfo mi;
+
+	mi = mallinfo();
+
+	stream->write_function(stream, "Total non-mmapped bytes (arena):       %u\n", mi.arena);
+	stream->write_function(stream, "# of free chunks (ordblks):            %u\n", mi.ordblks);
+	stream->write_function(stream, "# of free fastbin blocks (smblks):     %u\n", mi.smblks);
+	stream->write_function(stream, "# of mapped regions (hblks):           %u\n", mi.hblks);
+	stream->write_function(stream, "Bytes in mapped regions (hblkhd):      %u\n", mi.hblkhd);
+	stream->write_function(stream, "Max. total allocated space (usmblks):  %u\n", mi.usmblks);
+	stream->write_function(stream, "Free bytes held in fastbins (fsmblks): %u\n", mi.fsmblks);
+	stream->write_function(stream, "Total allocated space (uordblks):      %u\n", mi.uordblks);
+	stream->write_function(stream, "Total free space (fordblks):           %u\n", mi.fordblks);
+	stream->write_function(stream, "Topmost releasable block (keepcost):   %u\n", mi.keepcost);
+
+#endif
+
+	switch_goto_status(NULL, done);
+#else
+#ifdef WIN32
+	/* Based on: https://docs.microsoft.com/en-us/windows/win32/memory/enumerating-a-heap and https://docs.microsoft.com/en-us/windows/win32/memory/getting-process-heaps */
+	PHANDLE aHeaps;
+	SIZE_T BytesToAllocate;
+	DWORD HeapsIndex;
+	DWORD HeapsLength;
+	DWORD NumberOfHeaps;
+	HRESULT Result;
+	HANDLE hDefaultProcessHeap;
+	size_t CommittedSizeTotal = 0;
+	size_t UnCommittedSizeTotal = 0;
+	size_t SizeTotal = 0;
+	size_t OverheadTotal = 0;
+
+	NumberOfHeaps = GetProcessHeaps(0, NULL);
+	Result = SIZETMult(NumberOfHeaps, sizeof(*aHeaps), &BytesToAllocate);
+	if (Result != S_OK) {
+		switch_goto_status("SIZETMult failed.", done);
+	}
+
+	hDefaultProcessHeap = GetProcessHeap();
+	if (hDefaultProcessHeap == NULL) {
+		switch_goto_status("Failed to retrieve the default process heap", done);
+	}
+
+	aHeaps = (PHANDLE)HeapAlloc(hDefaultProcessHeap, 0, BytesToAllocate);
+	if (aHeaps == NULL) {
+		switch_goto_status("HeapAlloc failed to allocate space for heaps", done);
+	}
+
+	HeapsLength = NumberOfHeaps;
+	NumberOfHeaps = GetProcessHeaps(HeapsLength, aHeaps);
+
+	if (NumberOfHeaps == 0) {
+		switch_goto_status("Failed to retrieve heaps", cleanup);
+	} else if (NumberOfHeaps > HeapsLength) {
+		/*
+		 * Compare the latest number of heaps with the original number of heaps.
+		 * If the latest number is larger than the original number, another
+		 * component has created a new heap and the buffer is too small.
+		 */
+		switch_goto_status("Another component created a heap between calls.", cleanup);
+	}
+
+	stream->write_function(stream, "Process has %d heaps.\n", HeapsLength);
+	for (HeapsIndex = 0; HeapsIndex < HeapsLength; ++HeapsIndex) {
+		PROCESS_HEAP_ENTRY Entry;
+		HANDLE hHeap = aHeaps[HeapsIndex];
+
+		stream->write_function(stream, "Heap %d at address: %#p.\n", HeapsIndex, aHeaps[HeapsIndex]);
+
+		/* Lock the heap to prevent other threads from accessing the heap during enumeration. */
+		if (HeapLock(hHeap) == FALSE) {
+			switch_goto_status("Failed to lock heap.", cleanup);
+		}
+
+		Entry.lpData = NULL;
+		while (HeapWalk(hHeap, &Entry) != FALSE) {
+			if ((Entry.wFlags & PROCESS_HEAP_ENTRY_BUSY) != 0) {
+			} else if ((Entry.wFlags & PROCESS_HEAP_REGION) != 0) {
+				CommittedSizeTotal += Entry.Region.dwCommittedSize;
+				UnCommittedSizeTotal += Entry.Region.dwUnCommittedSize;
+			}
+
+			SizeTotal += Entry.cbData;
+			OverheadTotal += Entry.cbOverhead;
+		}
+
+		/* Unlock the heap to allow other threads to access the heap after enumeration has completed. */
+		if (HeapUnlock(hHeap) == FALSE) {
+			abort();
+		}
+	}
+
+	stream->write_function(stream, "Committed bytes:   %" SWITCH_SIZE_T_FMT "\n", CommittedSizeTotal);
+	stream->write_function(stream, "Uncommited bytes:  %" SWITCH_SIZE_T_FMT "\n", UnCommittedSizeTotal);
+	stream->write_function(stream, "Size:              %" SWITCH_SIZE_T_FMT "\n", SizeTotal);
+	stream->write_function(stream, "Overhead:          %" SWITCH_SIZE_T_FMT"\n", OverheadTotal);
+
+cleanup:
+	HeapFree(hDefaultProcessHeap, 0, aHeaps);
+#else
+	switch_goto_status("Memory usage statistics is not implemented on the current platform.", done);
+#endif
+#endif
+done:
+	return status;
+}
+
+SWITCH_DECLARE(int) switch_rand(void)
+{
+	uint32_t random_number = 0;
+#ifdef WIN32
+	BCRYPT_ALG_HANDLE hAlgorithm = NULL;
+	NTSTATUS status = BCryptOpenAlgorithmProvider(&hAlgorithm, BCRYPT_RNG_ALGORITHM, NULL, 0);
+
+	if (!BCRYPT_SUCCESS(status)) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "BCryptOpenAlgorithmProvider failed with status %d\n", status);
+
+		return 1;
+	}
+
+	status = BCryptGenRandom(hAlgorithm, (PUCHAR)&random_number, sizeof(random_number), 0);
+	if (!BCRYPT_SUCCESS(status)) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "BCryptGenRandom failed with status %d\n", status);
+
+		BCryptCloseAlgorithmProvider(hAlgorithm, 0);
+
+		return 1;
+	}
+
+	BCryptCloseAlgorithmProvider(hAlgorithm, 0);
+
+	/* Make sure we return from 0 to SWITCH_RAND_MAX */
+	return (random_number & (SWITCH_RAND_MAX));
+#elif defined(__unix__) || defined(__APPLE__)
+	int random_fd = open("/dev/urandom", O_RDONLY);
+	ssize_t result;
+	char error_msg[100];
+
+	if (random_fd == -1) {
+		strncpy(error_msg, strerror(errno), sizeof(error_msg) - 1);
+		error_msg[sizeof(error_msg) - 1] = '\0';
+
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "open failed: %s\n", error_msg);
+
+		return 1;
+	}
+
+	result = read(random_fd, &random_number, sizeof(random_number));
+	if (result < 0) {
+		strncpy(error_msg, strerror(errno), sizeof(error_msg) - 1);
+		error_msg[sizeof(error_msg) - 1] = '\0';
+
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "read failed: %s\n", error_msg);
+
+		close(random_fd);
+
+		return 1;
+	}
+	
+	close(random_fd);
+
+	/* Make sure we return from 0 to SWITCH_RAND_MAX */
+	return (random_number & (SWITCH_RAND_MAX));
+#else
+	return rand();
+#endif
+}
 
 /* For Emacs:
  * Local Variables:

@@ -33,6 +33,7 @@
 
 #include <switch.h>
 #include <stdio.h>
+#include "private/switch_apr_pvt.h"
 #include "private/switch_core_pvt.h"
 
 #ifdef HAVE_TIMERFD_CREATE
@@ -161,7 +162,7 @@ static void do_sleep(switch_interval_time_t t)
 
 #if !defined(DARWIN)
 	if (t > 100000 || !NANO) {
-		apr_sleep(t);
+		fspr_sleep(t);
 		return;
 	}
 #endif
@@ -178,7 +179,7 @@ static void do_sleep(switch_interval_time_t t)
 	ts.tv_nsec = (t % APR_USEC_PER_SEC) * 850;
 	nanosleep(&ts, NULL);
 #else
-	apr_sleep(t);
+	fspr_sleep(t);
 #endif
 
 #if defined(DARWIN)
@@ -412,7 +413,7 @@ typedef struct interval_timer interval_timer_t;
 static switch_status_t timerfd_start_interval(interval_timer_t *it, int interval)
 {
 	struct itimerspec val;
-	int fd, r;
+	int fd;
 	uint64_t exp;
 
 	fd = timerfd_create(CLOCK_MONOTONIC, 0);
@@ -431,7 +432,7 @@ static switch_status_t timerfd_start_interval(interval_timer_t *it, int interval
 		return SWITCH_STATUS_GENERR;
 	}
 
-	if ((r = read(fd, &exp, sizeof(exp)) < 0)) {
+	if (read(fd, &exp, sizeof(exp)) < 0) {
 		close(fd);
 		return SWITCH_STATUS_GENERR;
 	}
@@ -479,6 +480,10 @@ static switch_status_t _timerfd_next(switch_timer_t *timer)
 	interval_timer_t *it = timer->private_info;
 	uint64_t u64  = 0;
 
+	if (!it) {
+		return SWITCH_STATUS_GENERR;
+	}
+
 	if (read(it->fd, &u64, sizeof(u64)) < 0) {
 		return SWITCH_STATUS_GENERR;
 	} else {
@@ -494,6 +499,10 @@ static switch_status_t _timerfd_check(switch_timer_t *timer, switch_bool_t step)
 	interval_timer_t *it = timer->private_info;
 	struct itimerspec val;
 	int diff;
+
+	if (!it) {
+		return SWITCH_STATUS_GENERR;
+	}
 
 	timerfd_gettime(it->fd, &val);
 	diff = val.it_interval.tv_nsec / 1000;
@@ -515,9 +524,12 @@ static switch_status_t _timerfd_check(switch_timer_t *timer, switch_bool_t step)
 static switch_status_t _timerfd_destroy(switch_timer_t *timer)
 {
 	interval_timer_t *it = timer->private_info;
-	int rc;
+	int rc = SWITCH_STATUS_GENERR;
 
-	rc = timerfd_stop_interval(it);
+	if (it) {
+		rc = timerfd_stop_interval(it);
+	}
+
 	return rc;
 }
 
@@ -1032,7 +1044,7 @@ SWITCH_MODULE_RUNTIME_FUNCTION(softtimer_runtime)
 	int fwd_errs = 0, rev_errs = 0;
 	int profile_tick = 0;
 	int tfd = -1;
-	uint32_t time_sync = runtime.time_sync;
+	uint32_t time_sync;
 
 #ifdef HAVE_TIMERFD_CREATE
 	int last_MICROSECONDS_PER_TICK = runtime.microseconds_per_tick;
@@ -1068,7 +1080,6 @@ SWITCH_MODULE_RUNTIME_FUNCTION(softtimer_runtime)
 	}
 
 	switch_time_sync();
-	time_sync = runtime.time_sync;
 
 	globals.STARTED = globals.RUNNING = 1;
 	switch_mutex_lock(runtime.throttle_mutex);
@@ -1093,7 +1104,6 @@ SWITCH_MODULE_RUNTIME_FUNCTION(softtimer_runtime)
 		}
 	}
 
-	ts = 0;
 	last = 0;
 	fwd_errs = rev_errs = 0;
 
@@ -1147,11 +1157,11 @@ SWITCH_MODULE_RUNTIME_FUNCTION(softtimer_runtime)
 
 				if (!MONO || time_sync == runtime.time_sync) {
 #if defined(HAVE_CLOCK_NANOSLEEP)
-					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT,
-									  "If you see this message many times try setting the param enable-clock-nanosleep to true in switch.conf.xml or consider a nicer machine to run me on. I AM *FREE* afterall.\n");
+					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG,
+									  "If you see this message many times try setting the param enable-clock-nanosleep to true in switch.conf.xml or consider a nicer machine to run me on.\n");
 #else
-					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT,
-									  "If you see this message many times consider a nicer machine to run me on. I AM *FREE* afterall.\n");
+					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG,
+									  "If you see this message many times consider a nicer machine to run me on.\n");
 #endif
 				}
 			} else {
@@ -1163,9 +1173,8 @@ SWITCH_MODULE_RUNTIME_FUNCTION(softtimer_runtime)
 			} else {
 				if (tfd > -1 && globals.RUNNING == 1) {
 					uint64_t exp;
-					int r;
-					r = read(tfd, &exp, sizeof(exp));
-					r++;
+					read(tfd, &exp, sizeof(exp));
+					(void)exp;
 				} else {
 					switch_time_t timediff = runtime.reference - ts;
 
@@ -1233,15 +1242,17 @@ SWITCH_MODULE_RUNTIME_FUNCTION(softtimer_runtime)
 			if (runtime.sps <= 0) {
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "Over Session Rate of %d!\n", runtime.sps_total);
 			}
+
+			/* These two mutexes must be held in exact order: session_hash_mutex and then throttle_mutex. See switch_core_session_request_uuid() */
+			switch_mutex_lock(runtime.session_hash_mutex);
 			switch_mutex_lock(runtime.throttle_mutex);
 			runtime.sps_last = runtime.sps_total - runtime.sps;
 
 			if (sps_interval_ticks >= 300) {
 				runtime.sps_peak_fivemin = 0;
 				sps_interval_ticks = 0;
-				switch_mutex_lock(runtime.session_hash_mutex);
+				/* This line is protected by runtime.session_hash_mutex */
 				runtime.sessions_peak_fivemin = session_manager.session_count;
-				switch_mutex_unlock(runtime.session_hash_mutex);
 			}
 
 			sps_interval_ticks++;
@@ -1255,6 +1266,7 @@ SWITCH_MODULE_RUNTIME_FUNCTION(softtimer_runtime)
 			}
 			runtime.sps = runtime.sps_total;
 			switch_mutex_unlock(runtime.throttle_mutex);
+			switch_mutex_unlock(runtime.session_hash_mutex);
 			tick = 0;
 		}
 #ifndef DISABLE_1MS_COND
@@ -1307,7 +1319,6 @@ SWITCH_MODULE_RUNTIME_FUNCTION(softtimer_runtime)
 
 	if (tfd > -1) {
 		close(tfd);
-		tfd = -1;
 	}
 
 
@@ -1373,9 +1384,12 @@ SWITCH_DECLARE(const char *) switch_lookup_timezone(const char *tz_name)
 		return NULL;
 	}
 
+	switch_mutex_lock(globals.mutex);
 	if ((value = switch_core_hash_find(TIMEZONES_LIST.hash, tz_name)) == NULL) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Timezone '%s' not found!\n", tz_name);
 	}
+
+	switch_mutex_unlock(globals.mutex);
 
 	return value;
 }
@@ -1448,7 +1462,6 @@ SWITCH_DECLARE(switch_status_t) switch_time_exp_tz_name(const char *tz, switch_t
 		tzdef = switch_lookup_timezone(tz_name);
 	} else {
 		/* We set the default timezone to GMT. */
-		tz_name = "GMT";
 		tzdef = "GMT";
 	}
 
@@ -1484,7 +1497,6 @@ SWITCH_DECLARE(switch_status_t) switch_strftime_tz(const char *tz, const char *f
 		tzdef = switch_lookup_timezone(tz_name);
 	} else {
 		/* We set the default timezone to GMT. */
-		tz_name = "GMT";
 		tzdef = "GMT";
 	}
 
@@ -1513,7 +1525,7 @@ SWITCH_MODULE_LOAD_FUNCTION(softtimer_load)
 #endif
 
 	memset(&globals, 0, sizeof(globals));
-	switch_mutex_init(&globals.mutex, SWITCH_MUTEX_NESTED, module_pool);
+	switch_mutex_init(&globals.mutex, SWITCH_MUTEX_NESTED, runtime.memory_pool);
 
 	if ((switch_event_bind_removable(modname, SWITCH_EVENT_RELOADXML, NULL, event_handler, NULL, &NODE) != SWITCH_STATUS_SUCCESS)) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Couldn't bind!\n");
@@ -1590,16 +1602,19 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(softtimer_shutdown)
 	DeleteCriticalSection(&timer_section);
 #endif
 
+	if (NODE) {
+		switch_event_unbind(&NODE);
+	}
+
+	switch_mutex_lock(globals.mutex);
 	if (TIMEZONES_LIST.hash) {
 		switch_core_hash_destroy(&TIMEZONES_LIST.hash);
 	}
 
+	switch_mutex_unlock(globals.mutex);
+
 	if (TIMEZONES_LIST.pool) {
 		switch_core_destroy_memory_pool(&TIMEZONES_LIST.pool);
-	}
-
-	if (NODE) {
-		switch_event_unbind(&NODE);
 	}
 
 	return SWITCH_STATUS_SUCCESS;
@@ -2246,7 +2261,6 @@ static int tzparse(const char *name, register struct state *const sp, const int 
 			 ** Initially we're assumed to be in standard time.
 			 */
 			isdst = FALSE;
-			theiroffset = theirstdoffset;
 			/*
 			 ** Now juggle transition times and types
 			 ** tracking offsets as you do.

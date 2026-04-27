@@ -26,6 +26,7 @@
 #include "vpx_scale/vpx_scale.h"
 #include "encodemb.h"
 #include "vp8/common/extend.h"
+#include "vpx_ports/system_state.h"
 #include "vpx_mem/vpx_mem.h"
 #include "vp8/common/swapyv12buffer.h"
 #include "rdopt.h"
@@ -499,7 +500,7 @@ void vp8_first_pass(VP8_COMP *cpi) {
 
   zero_ref_mv.as_int = 0;
 
-  vp8_clear_system_state();
+  vpx_clear_system_state();
 
   x->src = *cpi->Source;
   xd->pre = *lst_yv12;
@@ -741,10 +742,10 @@ void vp8_first_pass(VP8_COMP *cpi) {
     /* extend the recon for intra prediction */
     vp8_extend_mb_row(new_yv12, xd->dst.y_buffer + 16, xd->dst.u_buffer + 8,
                       xd->dst.v_buffer + 8);
-    vp8_clear_system_state();
+    vpx_clear_system_state();
   }
 
-  vp8_clear_system_state();
+  vpx_clear_system_state();
   {
     double weight = 0.0;
 
@@ -988,11 +989,11 @@ static int estimate_max_q(VP8_COMP *cpi, FIRSTPASS_STATS *fpstats,
     bits_per_mb_at_this_q =
         vp8_bits_per_mb[INTER_FRAME][Q] + overhead_bits_per_mb;
 
-    bits_per_mb_at_this_q = (int)(.5 +
-                                  err_correction_factor * speed_correction *
-                                      cpi->twopass.est_max_qcorrection_factor *
-                                      cpi->twopass.section_max_qfactor *
-                                      (double)bits_per_mb_at_this_q);
+    bits_per_mb_at_this_q =
+        (int)(.5 + err_correction_factor * speed_correction *
+                       cpi->twopass.est_max_qcorrection_factor *
+                       cpi->twopass.section_max_qfactor *
+                       (double)bits_per_mb_at_this_q);
 
     /* Mode and motion overhead */
     /* As Q rises in real encode loop rd code will force overhead down
@@ -1085,9 +1086,8 @@ static int estimate_cq(VP8_COMP *cpi, FIRSTPASS_STATS *fpstats,
         vp8_bits_per_mb[INTER_FRAME][Q] + overhead_bits_per_mb;
 
     bits_per_mb_at_this_q =
-        (int)(.5 +
-              err_correction_factor * speed_correction * clip_iifactor *
-                  (double)bits_per_mb_at_this_q);
+        (int)(.5 + err_correction_factor * speed_correction * clip_iifactor *
+                       (double)bits_per_mb_at_this_q);
 
     /* Mode and motion overhead */
     /* As Q rises in real encode loop rd code will force overhead down
@@ -1184,9 +1184,9 @@ static int estimate_kf_group_q(VP8_COMP *cpi, double section_err,
     current_spend_ratio = (double)cpi->long_rolling_actual_bits /
                           (double)cpi->long_rolling_target_bits;
     current_spend_ratio =
-        (current_spend_ratio > 10.0) ? 10.0 : (current_spend_ratio < 0.1)
-                                                  ? 0.1
-                                                  : current_spend_ratio;
+        (current_spend_ratio > 10.0)
+            ? 10.0
+            : (current_spend_ratio < 0.1) ? 0.1 : current_spend_ratio;
   }
 
   /* Calculate a correction factor based on the quality of prediction in
@@ -1655,7 +1655,7 @@ static void define_gf_group(VP8_COMP *cpi, FIRSTPASS_STATS *this_frame) {
   cpi->twopass.gf_group_bits = 0;
   cpi->twopass.gf_decay_rate = 0;
 
-  vp8_clear_system_state();
+  vpx_clear_system_state();
 
   start_pos = cpi->twopass.stats_in;
 
@@ -1737,10 +1737,11 @@ static void define_gf_group(VP8_COMP *cpi, FIRSTPASS_STATS *this_frame) {
             /* Dont break out very close to a key frame */
             ((cpi->twopass.frames_to_key - i) >= MIN_GF_INTERVAL) &&
             ((boost_score > 20.0) || (next_frame.pcnt_inter < 0.75)) &&
-            (!flash_detected) && ((mv_ratio_accumulator > 100.0) ||
-                                  (abs_mv_in_out_accumulator > 3.0) ||
-                                  (mv_in_out_accumulator < -2.0) ||
-                                  ((boost_score - old_boost_score) < 2.0)))) {
+            (!flash_detected) &&
+            ((mv_ratio_accumulator > 100.0) ||
+             (abs_mv_in_out_accumulator > 3.0) ||
+             (mv_in_out_accumulator < -2.0) ||
+             ((boost_score - old_boost_score) < 2.0)))) {
       boost_score = old_boost_score;
       break;
     }
@@ -1813,8 +1814,9 @@ static void define_gf_group(VP8_COMP *cpi, FIRSTPASS_STATS *this_frame) {
       (next_frame.pcnt_inter > 0.75) &&
       ((mv_in_out_accumulator / (double)i > -0.2) ||
        (mv_in_out_accumulator > -2.0)) &&
-      (cpi->gfu_boost > 100) && (cpi->twopass.gf_decay_rate <=
-                                 (ARF_DECAY_THRESH + (cpi->gfu_boost / 200))))
+      (cpi->gfu_boost > 100) &&
+      (cpi->twopass.gf_decay_rate <=
+       (ARF_DECAY_THRESH + (cpi->gfu_boost / 200))))
 #endif
   {
     int Boost;
@@ -2268,7 +2270,7 @@ void vp8_second_pass(VP8_COMP *cpi) {
     return;
   }
 
-  vp8_clear_system_state();
+  vpx_clear_system_state();
 
   if (EOF == input_stats(cpi, &this_frame)) return;
 
@@ -2543,7 +2545,7 @@ static void find_next_key_frame(VP8_COMP *cpi, FIRSTPASS_STATS *this_frame) {
 
   memset(&next_frame, 0, sizeof(next_frame));
 
-  vp8_clear_system_state();
+  vpx_clear_system_state();
   start_position = cpi->twopass.stats_in;
 
   cpi->common.frame_type = KEY_FRAME;

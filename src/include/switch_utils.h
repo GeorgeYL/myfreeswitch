@@ -304,7 +304,9 @@ SWITCH_DECLARE(char *) switch_print_host(switch_sockaddr_t *addr, char *buf, swi
 */
 _Check_return_ static inline int _zstr(_In_opt_z_ const char *s)
 {
-	return !s || *s == '\0';
+	if (!s) return 1;
+	if (*s == '\0') return 1;
+	return 0;
 }
 #ifdef _PREFAST_
 #define zstr(x) (_zstr(x) ? 1 : __analysis_assume(x),0)
@@ -496,6 +498,14 @@ SWITCH_DECLARE(switch_size_t) switch_fp_read_dline(FILE *fd, char **buf, switch_
 SWITCH_DECLARE(switch_status_t) switch_frame_alloc(switch_frame_t **frame, switch_size_t size);
 SWITCH_DECLARE(switch_status_t) switch_frame_dup(switch_frame_t *orig, switch_frame_t **clone);
 SWITCH_DECLARE(switch_status_t) switch_frame_free(switch_frame_t **frame);
+
+/*! \brief Check if a 32 bit unsigned number is in a range.
+ * \param str string to check. Should not contain non-digit characters.
+ * \param from start of range including this number
+ * \param to end of range including this number
+ * \return true or false
+ */
+SWITCH_DECLARE(switch_bool_t) switch_is_uint_in_range(const char *str, unsigned int from, unsigned int to);
 SWITCH_DECLARE(switch_bool_t) switch_is_number(const char *str);
 SWITCH_DECLARE(switch_bool_t) switch_is_leading_number(const char *str);
 SWITCH_DECLARE(char *) switch_find_parameter(const char *str, const char *param, switch_memory_pool_t *pool);
@@ -588,7 +598,7 @@ SWITCH_DECLARE(char *) get_addr(char *buf, switch_size_t len, struct sockaddr *s
 SWITCH_DECLARE(char *) get_addr6(char *buf, switch_size_t len, struct sockaddr_in6 *sa, socklen_t salen);
 
 SWITCH_DECLARE(int) get_addr_int(switch_sockaddr_t *sa);
-SWITCH_DECLARE(int) switch_cmp_addr(switch_sockaddr_t *sa1, switch_sockaddr_t *sa2);
+SWITCH_DECLARE(int) switch_cmp_addr(switch_sockaddr_t *sa1, switch_sockaddr_t *sa2, switch_bool_t ip_only);
 SWITCH_DECLARE(int) switch_cp_addr(switch_sockaddr_t *sa1, switch_sockaddr_t *sa2);
 
 /*!
@@ -829,14 +839,38 @@ static inline char *switch_clean_name_string(char *s)
 
 
 /*!
-  \brief Turn a string into a number (default if NULL)
+  \brief Turn a string into an integer (default if NULL)
   \param nptr the string
   \param dft the default
-  \return the number version of the string or the default
+  \return the integer version of the string or the default
 */
 static inline int switch_safe_atoi(const char *nptr, int dft)
 {
 	return nptr ? atoi(nptr) : dft;
+}
+
+
+/*!
+  \brief Turn a string into a long integer (default if NULL)
+  \param nptr the string
+  \param dft the default
+  \return the long integer version of the string or the default
+*/
+static inline long int switch_safe_atol(const char *nptr, long int dft)
+{
+	return nptr ? atol(nptr) : dft;
+}
+
+
+/*!
+  \brief Turn a string into a long long integer (default if NULL)
+  \param nptr the string
+  \param dft the default
+  \return the long long integer version of the string or the default
+*/
+static inline long long int switch_safe_atoll(const char *nptr, long long int dft)
+{
+	return nptr ? atoll(nptr) : dft;
 }
 
 
@@ -862,13 +896,10 @@ static inline char *switch_safe_strdup(const char *it)
 static inline char *switch_lc_strdup(const char *it)
 {
 	char *dup;
-	char *p;
 
 	if (it) {
 		dup = strdup(it);
-		for (p = dup; p && *p; p++) {
-			*p = (char) switch_tolower(*p);
-		}
+		switch_tolower_max(dup);
 		return dup;
 	}
 
@@ -879,13 +910,10 @@ static inline char *switch_lc_strdup(const char *it)
 static inline char *switch_uc_strdup(const char *it)
 {
 	char *dup;
-	char *p;
 
 	if (it) {
 		dup = strdup(it);
-		for (p = dup; p && *p; p++) {
-			*p = (char) switch_toupper(*p);
-		}
+		switch_toupper_max(dup);
 		return dup;
 	}
 
@@ -1054,21 +1082,42 @@ SWITCH_DECLARE(char *) switch_util_quote_shell_arg_pool(const char *string, swit
 #define SWITCH_READ_ACCEPTABLE(status) (status == SWITCH_STATUS_SUCCESS || status == SWITCH_STATUS_BREAK || status == SWITCH_STATUS_INUSE)
 
 
-static inline int32_t switch_calc_bitrate(int w, int h, int quality, double fps)
-{
-	int r;
+static inline int32_t switch_calc_bitrate(int w, int h, float quality, double fps)
+{   
+    int r;
 
-	/* KUSH GAUGE*/
+    if (quality == 0) {
+        quality = 1;
+    }
 
-	if (!fps) fps = 15;
+    /* KUSH GAUGE*/
 
-	r = (int32_t)((double)(w * h * fps * (quality ? quality : 1)) * 0.07) / 1000;
+    if (!fps) fps = 15;
 
-	if (!quality) r /= 2;
+    r = (int32_t)((double)(w * h * fps * quality) * 0.07) / 1000;
 
-	return r;
+    if (!quality) r /= 2;
+
+    if (quality < 0.0f) {
+        r = (int) ((float)r * quality);
+    }
+
+    return r;
 
 }
+
+static inline void switch_calc_fps(switch_fps_t *fpsP, float fps, int samplerate)
+{
+	/*
+	  implicit/truncf() - leave us with equal-or-smaller ms and thus equal-or-bigger fps, which is better for quality (than roundf()).
+	  also equal-or-bigger fps is better for things like (int)fps
+	*/
+	fpsP->ms = (int)(1000.0f / fps);
+	fpsP->fps = 1000.0f / fpsP->ms;
+	fpsP->samples = (int)(samplerate / 1000 * fpsP->ms); // samplerate 99.99% is a factor of 1000, so we safe here with integer div by 1000
+	return;
+}
+#define switch_calc_video_fps(fpsP, fps) switch_calc_fps(fpsP, fps, 90000)
 
 static inline int32_t switch_parse_bandwidth_string(const char *bwv)
 {
@@ -1103,10 +1152,7 @@ static inline uint32_t switch_parse_cpu_string(const char *cpu)
 	if (!cpu) return 1;
 
 	if (!strcasecmp(cpu, "auto")) {
-		if (cpu_count > 4) return 4;
-		if (cpu_count <= 2) return 1;
-
-		return (uint32_t)(cpu_count / 2);
+		return (uint32_t)((cpu_count * 3) / 2);
 	}
 
 	if (!strncasecmp(cpu, "cpu/", 4)) { /* cpu/2 or cpu/2/<max>  */
@@ -1138,7 +1184,7 @@ static inline uint32_t switch_parse_cpu_string(const char *cpu)
 	} else {
 		ncpu = atoi(cpu);
 
-		if (cpu && strrchr(cpu, '%')) {
+		if (strrchr(cpu, '%')) {
 			ncpu = (int) (cpu_count * ((float)ncpu / 100));
 		}
 	}
@@ -1193,6 +1239,7 @@ static inline void switch_separate_file_params(const char *file, char **file_por
 	char *e = NULL;
 	char *space = strdup(file);
 
+	switch_assert(space);
 	file = space;
 
 	*file_portion = NULL;
@@ -1239,6 +1286,31 @@ static inline switch_bool_t switch_is_file_path(const char *file)
 #endif
 
 	return r ? SWITCH_TRUE : SWITCH_FALSE;
+}
+
+static inline int switch_filecmp(const char *a, const char *b)
+{
+	const char *e;
+
+	if (zstr(a) || zstr(b)) {
+		return -1;
+	}
+
+	while(*a == '{') {
+		if ((e = switch_find_end_paren(a, '{', '}'))) {
+			a = e + 1;
+			while(*a == ' ') a++;
+		}
+	}
+
+	while(*b == '{') {
+		if ((e = switch_find_end_paren(b, '{', '}'))) {
+			b = e + 1;
+			while(*b == ' ') b++;
+		}
+	}
+
+	return strcmp(a, b);
 }
 
 
@@ -1314,6 +1386,12 @@ SWITCH_DECLARE(void) switch_split_time(const char *exp, int *hour, int *min, int
 */
 SWITCH_DECLARE(int) switch_split_user_domain(char *in, char **user, char **domain);
 
+SWITCH_DECLARE(void *) switch_calloc(size_t nmemb, size_t size);
+
+#ifdef __clang_analyzer__
+#define calloc switch_calloc
+#endif
+
 /* malloc or DIE macros */
 #ifdef NDEBUG
 #define switch_malloc(ptr, len) (void)( (!!(ptr = malloc(len))) || (fprintf(stderr,"ABORT! Malloc failure at: %s:%d", __FILE__, __LINE__),abort(), 0), ptr )
@@ -1324,14 +1402,14 @@ SWITCH_DECLARE(int) switch_split_user_domain(char *in, char **user, char **domai
 #define switch_strdup(ptr, s) (void)( (!!(ptr = strdup(s))) || (fprintf(stderr,"ABORT! Malloc failure at: %s:%d", __FILE__, __LINE__),abort(), 0), ptr)
 #endif
 #else
-#if (_MSC_VER >= 1500)			// VC9+
+#if (_MSC_VER >= 1500)            // VC9+
 #define switch_malloc(ptr, len) (void)(assert(((ptr) = malloc((len)))),ptr);__analysis_assume( ptr )
 #define switch_zmalloc(ptr, len) (void)(assert((ptr = calloc(1, (len)))),ptr);__analysis_assume( ptr )
 #define switch_strdup(ptr, s) (void)(assert(((ptr) = _strdup(s))),ptr);__analysis_assume( ptr )
 #else
-#define switch_malloc(ptr, len) (void)(assert(((ptr) = malloc((len)))),ptr)
-#define switch_zmalloc(ptr, len) (void)(assert((ptr = calloc(1, (len)))),ptr)
-#define switch_strdup(ptr, s) (void)(assert(((ptr) = strdup((s)))),ptr)
+#define switch_malloc(ptr, len) (void)(switch_assert(((ptr) = malloc((len)))),ptr)
+#define switch_zmalloc(ptr, len) (void)(switch_assert((ptr = calloc(1, (len)))),ptr)
+#define switch_strdup(ptr, s) (void)(switch_assert(((ptr) = strdup((s)))),ptr)
 #endif
 #endif
 
@@ -1415,7 +1493,8 @@ SWITCH_DECLARE(switch_status_t) switch_frame_buffer_push(switch_frame_buffer_t *
 SWITCH_DECLARE(switch_status_t) switch_frame_buffer_trypush(switch_frame_buffer_t *fb, void *ptr);
 SWITCH_DECLARE(switch_status_t) switch_frame_buffer_pop(switch_frame_buffer_t *fb, void **ptr);
 SWITCH_DECLARE(switch_status_t) switch_frame_buffer_trypop(switch_frame_buffer_t *fb, void **ptr);
-
+SWITCH_DECLARE(int) switch_frame_buffer_size(switch_frame_buffer_t *fb);
+								
 typedef struct {
 	int64_t userms;
 	int64_t kernelms;
@@ -1426,6 +1505,19 @@ typedef struct {
 SWITCH_DECLARE(void) switch_getcputime(switch_cputime *t);
 
 SWITCH_DECLARE(char *)switch_html_strip(const char *str);
+
+SWITCH_DECLARE(unsigned long) switch_getpid(void);
+
+SWITCH_DECLARE(switch_status_t) switch_digest(const char *digest_name, unsigned char **digest, const void *input, switch_size_t inputLen, unsigned int *outputlen);
+SWITCH_DECLARE(switch_status_t) switch_digest_string(const char *digest_name, char **digest_str, const void *input, switch_size_t inputLen, unsigned int *outputlen);
+
+SWITCH_DECLARE(char *) switch_must_strdup(const char *_s);
+SWITCH_DECLARE(const char *) switch_memory_usage_stream(switch_stream_handle_t *stream);
+
+/**
+/ Compliant random number generator. Returns the value between 0 and 0x7fff (RAND_MAX).
+**/
+SWITCH_DECLARE(int) switch_rand(void);
 
 SWITCH_END_EXTERN_C
 #endif

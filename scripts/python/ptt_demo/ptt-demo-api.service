@@ -5,10 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Demo default: run as root because the sample workdir is commonly under /root.
-# For production, set a dedicated service account and a non-/root workdir.
-User=root
-Group=root
+# Update User/Group to a non-root service account in production
+User=freeswitch
+Group=freeswitch
 WorkingDirectory=/opt/freeswitch/src/scripts/python/ptt_demo
 EnvironmentFile=/etc/default/ptt-demo-api
 ExecStart=/opt/freeswitch/src/scripts/python/ptt_demo/.venv/bin/python -m uvicorn ptt_demo_service:app --host ${API_HOST} --port ${API_PORT}
@@ -21,8 +20,7 @@ KillSignal=SIGINT
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-# Demo default keeps /root workdir accessible. Tighten in production if not using /root.
-ProtectHome=false
+ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target

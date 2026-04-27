@@ -41,12 +41,16 @@
 
 SWITCH_BEGIN_EXTERN_C
 
+#define SWITCH_RTP_HEADER_LEN sizeof(switch_rtp_hdr_t)
 #define SWITCH_RTP_MAX_BUF_LEN 16384
 #define SWITCH_RTCP_MAX_BUF_LEN 16384
 #define SWITCH_RTP_MAX_BUF_LEN_WORDS 4094 /* (max / 4) - 2 */
+#define SWITCH_RTP_MAX_PACKET_LEN (SWITCH_RTP_MAX_BUF_LEN + SWITCH_RTP_HEADER_LEN)
 //#define SWITCH_RTP_KEY_LEN 30
 //#define SWITCH_RTP_CRYPTO_KEY_32 "AES_CM_128_HMAC_SHA1_32"
 #define SWITCH_RTP_CRYPTO_KEY_80 "AES_CM_128_HMAC_SHA1_80"
+
+#define SWITCH_RTP_BUNDLE_INTERNAL_PT 21
 
 typedef struct {
 	switch_rtp_hdr_t header;
@@ -99,15 +103,18 @@ typedef struct icand_s {
 	switch_port_t rport;
 	char *generation;
 	uint8_t ready;
+	uint8_t responsive;
+	uint8_t use_candidate;
 } icand_t;
 
 #define MAX_CAND 50
+#define MAX_CAND_IDX_COUNT 2
 typedef struct ice_s {
 
-	icand_t cands[MAX_CAND][2];
-	int cand_idx[2];
-	int chosen[2];
-	int is_chosen[2];
+	icand_t cands[MAX_CAND][MAX_CAND_IDX_COUNT];
+	int cand_idx[MAX_CAND_IDX_COUNT];
+	int chosen[MAX_CAND_IDX_COUNT];
+	int is_chosen[MAX_CAND_IDX_COUNT];
 	char *ufrag;
 	char *pwd;
 	char *options;
@@ -232,7 +239,7 @@ SWITCH_DECLARE(switch_status_t) switch_rtp_create(switch_rtp_t **new_rtp_session
 												  switch_payload_t payload,
 												  uint32_t samples_per_interval,
 												  uint32_t ms_per_packet,
-												  switch_rtp_flag_t flags[], char *timer_name, const char **err, switch_memory_pool_t *pool);
+												  switch_rtp_flag_t flags[SWITCH_RTP_FLAG_INVALID], char *timer_name, const char **err, switch_memory_pool_t *pool);
 
 
 /*!
@@ -248,6 +255,7 @@ SWITCH_DECLARE(switch_status_t) switch_rtp_create(switch_rtp_t **new_rtp_session
   \param timer_name timer interface to use
   \param err a pointer to resolve error messages
   \param pool a memory pool to use for the session
+  \param bundle_port port used by bundled stream locally, for video thread this is the port where it will forward audio (internal bundle port on which audio is listening), and for audio this is the port where it will send RTP (external bundle port where video is listening)
   \return the new RTP session or NULL on failure
 */
 SWITCH_DECLARE(switch_rtp_t *) switch_rtp_new(const char *rx_host,
@@ -257,7 +265,7 @@ SWITCH_DECLARE(switch_rtp_t *) switch_rtp_new(const char *rx_host,
 											  switch_payload_t payload,
 											  uint32_t samples_per_interval,
 											  uint32_t ms_per_packet,
-											  switch_rtp_flag_t flags[], char *timer_name, const char **err, switch_memory_pool_t *pool);
+											  switch_rtp_flag_t flags[SWITCH_RTP_FLAG_INVALID], char *timer_name, const char **err, switch_memory_pool_t *pool, switch_port_t bundle_internal_ports, switch_port_t bundle_external_port);
 
 
 /*!
@@ -275,6 +283,7 @@ SWITCH_DECLARE(char *) switch_rtp_get_remote_host(switch_rtp_t *rtp_session);
 SWITCH_DECLARE(switch_port_t) switch_rtp_get_remote_port(switch_rtp_t *rtp_session);
 SWITCH_DECLARE(void) switch_rtp_reset_media_timer(switch_rtp_t *rtp_session);
 SWITCH_DECLARE(void) switch_rtp_set_max_missed_packets(switch_rtp_t *rtp_session, uint32_t max);
+SWITCH_DECLARE(void) switch_rtp_set_media_timeout(switch_rtp_t *rtp_session, uint32_t ms);
 
 SWITCH_DECLARE(switch_status_t) switch_rtp_udptl_mode(switch_rtp_t *rtp_session);
 SWITCH_DECLARE(void) switch_rtp_reset(switch_rtp_t *rtp_session);
@@ -589,6 +598,7 @@ SWITCH_DECLARE(switch_status_t) switch_rtp_ack_bitrate(switch_rtp_t *rtp_session
 SWITCH_DECLARE(void) switch_rtp_video_refresh(switch_rtp_t *rtp_session);
 SWITCH_DECLARE(void) switch_rtp_video_loss(switch_rtp_t *rtp_session);
 
+SWITCH_DECLARE(switch_core_session_t*) switch_rtp_get_core_session(switch_rtp_t *rtp_session);
 /*!
   \}
 */

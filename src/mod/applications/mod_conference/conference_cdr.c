@@ -213,7 +213,7 @@ char *conference_cdr_rfc4579_render(conference_obj_t *conference, switch_event_t
 		if (!(x_tag3 = switch_xml_add_child_d(x_tag2, "status", off3++))) {
 			abort();
 		}
-		switch_xml_set_txt_d(x_tag3, np->leave_time ? "disconnected" : "connected");
+		switch_xml_set_txt_d(x_tag3, "connected");
 
 
 		if (!(x_tag3 = switch_xml_add_child_d(x_tag2, "joining-info", off3++))) {
@@ -315,8 +315,6 @@ char *conference_cdr_rfc4579_render(conference_obj_t *conference, switch_event_t
 
 	switch_mutex_unlock(conference->member_mutex);
 
-	off1 = off2 = off3 = off4 = 0;
-
 	xml_text = switch_xml_toxml(xml, SWITCH_TRUE);
 	switch_xml_free(xml);
 
@@ -398,15 +396,12 @@ cJSON *conference_cdr_json_render(conference_obj_t *conference, cJSON *req)
 			}
 		}
 
-		if (np->cp) {
-
-			if (!user_uri) {
-				user_uri = switch_mprintf("%s@%s", np->cp->caller_id_number, domain);
-			}
-
-			json_add_child_string(juser, "entity", user_uri);
-			json_add_child_string(juser, "displayText", np->cp->caller_id_name);
+		if (!user_uri) {
+			user_uri = switch_mprintf("%s@%s", np->cp->caller_id_number, domain);
 		}
+
+		json_add_child_string(juser, "entity", user_uri);
+		json_add_child_string(juser, "displayText", np->cp->caller_id_name);
 
 		//if (np->record_path) {
 		//json_add_child_string(juser, "recordingPATH", np->record_path);
@@ -494,11 +489,9 @@ void conference_cdr_del(conference_member_t *member)
 			switch_channel_get_variables(member->channel, &member->cdr_node->var_event);
 		}
 
-		if (member->cdr_node) {
-			member->cdr_node->leave_time = switch_epoch_time_now(NULL);
-			memcpy(member->cdr_node->mflags, member->flags, sizeof(member->flags));
-			member->cdr_node->member = NULL;
-		}
+		member->cdr_node->leave_time = switch_epoch_time_now(NULL);
+		memcpy(member->cdr_node->mflags, member->flags, sizeof(member->flags));
+		member->cdr_node->member = NULL;
 	}
 	switch_mutex_unlock(member->conference->member_mutex);
 }
@@ -669,6 +662,9 @@ void conference_cdr_render(conference_obj_t *conference)
 			x_tag = switch_xml_add_child_d(x_flags, "end_conference", flag_off++);
 			switch_xml_set_txt_d(x_tag, conference_cdr_test_mflag(np, MFLAG_ENDCONF) ? "true" : "false");
 
+			x_tag = switch_xml_add_child_d(x_flags, "mandatory_member_end_conference", flag_off++);
+			switch_xml_set_txt_d(x_tag, conference_cdr_test_mflag(np, MFLAG_MANDATORY_MEMBER_ENDCONF) ? "true" : "false");
+
 			x_tag = switch_xml_add_child_d(x_flags, "was_kicked", flag_off++);
 			switch_xml_set_txt_d(x_tag, conference_cdr_test_mflag(np, MFLAG_KICKED) ? "true" : "false");
 
@@ -744,9 +740,8 @@ void conference_cdr_render(conference_obj_t *conference)
 #endif
 				int wrote;
 				wrote = write(fd, xml_text, (unsigned) strlen(xml_text));
-				wrote++;
+				(void)wrote;
 				close(fd);
-				fd = -1;
 			} else {
 				char ebuf[512] = { 0 };
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error writing [%s][%s]\n",

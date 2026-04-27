@@ -30,43 +30,10 @@ sudo apt-get update
 sudo apt-get install -y \
   build-essential autoconf automake libtool pkg-config git \
   libssl-dev libcurl4-openssl-dev libpcre3-dev libspeexdsp-dev \
-  libsndfile1-dev libsqlite3-dev libedit-dev libtiff-dev yasm
-```
-
-centOS 7/8 示例：
-
-```bash
-sudo yum groupinstall -y "Development Tools"
-
-sudo yum install -y \
-  autoconf automake libtool pkgconfig m4 which \
-  gcc gcc-c++ make \
-  openssl-devel libcurl-devel pcre-devel speexdsp-devel \
-  libsndfile-devel sqlite-devel libedit-devel libtiff-devel yasm
-```
-CentOS 9
-```bash
-sudo dnf groupinstall -y "Development Tools"
-
-sudo dnf install -y \
-  autoconf automake libtool pkgconf-pkg-config m4 which \
-  gcc gcc-c++ make \
-  openssl-devel libcurl-devel pcre-devel speexdsp-devel \
-  libsndfile-devel sqlite-devel libedit-devel libtiff-devel yasm
+  libsndfile1-dev libsqlite3-dev libedit-dev yasm
 ```
 
 说明：不同发行版包名略有差异，可按 `./configure` 报错补齐。
-
-当前最小 PTT 构建默认不包含 `mod_opus`，这样可以避免额外的 Opus 开发库依赖。
-如果你需要 Opus 编解码支持，再把 `build/modules.conf.ptt.minimal` 中的 `codecs/mod_opus` 加回去，并安装：
-
-```bash
-# Ubuntu/Debian
-sudo apt-get install -y libopus-dev
-
-# CentOS/RHEL 7/8/Stream 9
-sudo yum install -y opus-devel || sudo dnf install -y opus-devel
-```
 
 ---
 
@@ -104,7 +71,7 @@ chmod +x ./build-ptt-minimal-linux.sh
 3. 执行 `bootstrap -> configure -> make -> make install`
 4. 构建结束后自动恢复原 `modules.conf`（除非 `--keep-modules-conf`）
 
-说明：当前仓库默认未包含 `mod_audio_fork` 源码目录。若你引入了该模块源码（路径需为 `src/mod/applications/mod_audio_fork`），脚本会自动纳入编译，无需额外改动。
+说明：当前仓库默认可能不包含 `mod_audio_fork` 源码目录。若你引入了该模块源码（路径为 `src/mod/applications/mod_audio_fork`），脚本会自动纳入编译。
 
 ---
 
@@ -158,28 +125,6 @@ chmod +x ./scripts/python/ptt_demo/generate_bot_audio_linux.sh
 5. 启动 API
 6. 执行 API 冒烟测试
 
-额外说明：`run_demo_linux.sh` 在启动 API 前会生成机器人语音 WAV，默认依赖以下任一方案：
-
-```bash
-# 方案 A：pico2wave
-# Ubuntu/Debian
-sudo apt-get install -y libttspico-utils
-
-# 方案 B：espeak-ng（推荐，通常无需 ffmpeg）
-# Ubuntu/Debian
-sudo apt-get install -y espeak-ng
-
-# CentOS/RHEL 7/8
-sudo yum install -y espeak-ng
-
-# CentOS Stream 9
-sudo dnf install -y espeak-ng
-```
-
-如果两类 TTS 引擎都没安装，脚本会在 `Generating bot audio...` 阶段退出。
-
-Python 版本说明：Demo API 在 Python 3.6 环境会自动安装兼容版 FastAPI/Uvicorn 依赖；Python 3.7+ 会安装新版依赖。
-
 常用参数：
 
 ```bash
@@ -194,54 +139,6 @@ Python 版本说明：Demo API 在 Python 3.6 环境会自动安装兼容版 Fas
 
 # 跳过冒烟测试
 ./scripts/python/ptt_demo/run_demo_linux.sh --no-smoke-test
-```
-
-### 7.1 冒烟结果判读
-
-如果 `api_smoke_test_linux.sh` 输出中出现如下结果：
-
-```json
-"freeswitch_result":"-ERR Conference ptt_s1_c1@127.0.0.1 not found"
-```
-
-通常表示：
-
-1. API 本身可用（`/health` 已通过）
-2. 目标会议房间当前没有在线成员，因此 bot 注入失败
-
-这不代表 API 启动失败。若需要验证 bot 语音注入成功，请先让至少一个终端入会（例如注册分机后拨打 `7111` 进入 `ptt_s1_c1@127.0.0.1`），再重跑冒烟测试。
-
-结合一次真实输出示例：
-
-```text
-Checking health...
-{"status":"ok"}
-Checking logs endpoint...
-log_count=(install jq to show count)
-Triggering bot reply for site=1 channel=1...
-{"room":"ptt_s1_c1@127.0.0.1","question":"need safety reminder","answer_file":"bot_audio/qa_safety.wav","freeswitch_result":"-ERR Conference ptt_s1_c1@127.0.0.1 not found"}
-```
-
-可按下列方式判定：
-
-1. `{"status":"ok"}`：API 服务健康。
-2. `log_count=(install jq to show count)`：仅表示系统未安装 `jq`，不影响核心功能。
-3. `Conference ... not found`：会议房间未创建（通常是无人在线），不是 API 故障。
-
-若希望冒烟测试中的 bot 注入也返回成功：
-
-1. 先让至少一个终端入会（如拨打 `7111` 进入 `ptt_s1_c1@127.0.0.1`）。
-2. 再执行：`./api_smoke_test_linux.sh http://127.0.0.1:8090`
-3. 预期 `freeswitch_result` 从 `-ERR Conference ... not found` 变为 `+OK` 或等价成功回执。
-
-可选：安装 `jq` 让日志计数显示更直观。
-
-```bash
-# CentOS/RHEL 7/8
-sudo yum install -y jq
-
-# CentOS Stream 9
-sudo dnf install -y jq
 ```
 
 ---
@@ -273,47 +170,6 @@ sudo dnf install -y jq
 ```bash
 chmod +x ./scripts/python/ptt_demo/install_systemd_service.sh
 sudo ./scripts/python/ptt_demo/install_systemd_service.sh
-```
-
-若工作目录在 `/root/...`（例如 `/root/myfreeswitch/scripts/python/ptt_demo`），推荐显式指定 root 账户，避免 `status=217/USER`：
-
-```bash
-sudo ./scripts/python/ptt_demo/install_systemd_service.sh --user root --group root --workdir /root/myfreeswitch/scripts/python/ptt_demo
-```
-
-如果日志出现 `status=200/CHDIR`，通常是 `WorkingDirectory` 路径不正确，或服务启用了 `ProtectHome=true` 且工作目录位于 `/root/...`。
-
-建议按以下命令重新安装并重启服务（可直接复制执行）：
-
-```bash
-cd /root/myfreeswitch/scripts/python/ptt_demo
-sudo ./install_systemd_service.sh --user root --group root --workdir /root/myfreeswitch/scripts/python/ptt_demo
-sudo systemctl daemon-reload
-sudo systemctl reset-failed ptt-demo-api.service
-sudo systemctl restart ptt-demo-api.service
-sudo systemctl status ptt-demo-api.service --no-pager -l
-```
-
-若仍异常，继续检查 unit 关键字段：
-
-```bash
-sudo systemctl cat ptt-demo-api.service | grep -E "^(User|Group|WorkingDirectory|ProtectHome)="
-```
-
-期望输出包含：
-
-```text
-User=root
-Group=root
-WorkingDirectory=/root/myfreeswitch/scripts/python/ptt_demo
-ProtectHome=false
-```
-
-最后做一次 API 验收：
-
-```bash
-curl -s http://127.0.0.1:8090/health
-sudo journalctl -u ptt-demo-api.service -n 80 --no-pager
 ```
 
 脚本会自动：

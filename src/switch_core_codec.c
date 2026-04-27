@@ -120,8 +120,9 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_set_real_read_codec(switch_c
 			}
 		} else { /* replace real_read_codec */
 			switch_codec_t *cur_codec;
+
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "%s Original read codec replaced with %s:%d\n",
-							  switch_channel_get_name(session->channel), codec->implementation->iananame, codec->implementation->ianacode);
+							  switch_channel_get_name(session->channel), codec->implementation ? codec->implementation->iananame : "undefined", codec->implementation ? codec->implementation->ianacode : -1);
 			/* Set real_read_codec to front of the list of read_codecs */
 			cur_codec = session->read_codec;
 			while (cur_codec != NULL) {
@@ -129,8 +130,10 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_set_real_read_codec(switch_c
 					cur_codec->next = codec;
 					break;
 				}
+
 				cur_codec = cur_codec->next;
 			}
+
 			session->real_read_codec = codec;
 			session->real_read_impl = *codec->implementation;
 
@@ -154,6 +157,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_set_real_read_codec(switch_c
 				session->bug_codec.implementation->iananame, session->bug_codec.implementation->ianacode);
 			switch_core_codec_destroy(&session->bug_codec);
 		}
+
 		switch_thread_rwlock_unlock(session->bug_rwlock);
 	} else {
 		status = SWITCH_STATUS_FALSE;
@@ -169,6 +173,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_set_real_read_codec(switch_c
 			if (session->read_impl.actual_samples_per_second != session->read_impl.samples_per_second) {
 				switch_event_add_header(event, SWITCH_STACK_BOTTOM, "channel-reported-read-codec-rate", "%d", session->read_impl.samples_per_second);
 			}
+
 			switch_event_fire(&event);
 		}
 
@@ -191,6 +196,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_set_real_read_codec(switch_c
 	}
 
 	switch_mutex_unlock(session->codec_read_mutex);
+
 	return status;
 }
 
@@ -221,7 +227,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_set_read_codec(switch_core_s
 				goto end;
 			}
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "%s Push codec %s:%d\n",
-							  switch_channel_get_name(session->channel), codec->implementation->iananame, codec->implementation->ianacode);
+							  switch_channel_get_name(session->channel), codec->implementation ? codec->implementation->iananame : "undefined", codec->implementation ? codec->implementation->ianacode : -1);
 			codec->next = session->read_codec;
 			session->read_codec = codec;
 			if (codec->implementation) {
@@ -269,7 +275,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_set_read_codec(switch_core_s
 		goto end;
 	}
 
-	if (session->read_codec && session->read_impl.decoded_bytes_per_packet) {
+	if (session->read_impl.decoded_bytes_per_packet) {
 		if (switch_event_create(&event, SWITCH_EVENT_CODEC) == SWITCH_STATUS_SUCCESS) {
 			switch_channel_event_set_data(session->channel, event);
 			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "channel-read-codec-name", session->read_impl.iananame);
@@ -440,7 +446,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_set_write_codec(switch_core_
 		session->write_impl = *codec->implementation;
 	}
 
-	if (session->write_codec && codec && session->write_impl.codec_id) {
+	if (codec && session->write_impl.codec_id) {
 		if (switch_event_create(&event, SWITCH_EVENT_CODEC) == SWITCH_STATUS_SUCCESS) {
 			switch_channel_event_set_data(session->channel, event);
 			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Channel-Write-Codec-Name", session->write_impl.iananame);
@@ -614,14 +620,18 @@ SWITCH_DECLARE(switch_status_t) switch_core_codec_reset(switch_codec_t *codec)
 SWITCH_DECLARE(switch_status_t) switch_core_codec_copy(switch_codec_t *codec, switch_codec_t *new_codec,
 													   const switch_codec_settings_t *codec_settings, switch_memory_pool_t *pool)
 {
+	uint32_t codec_rate;
 	switch_assert(codec != NULL);
 	switch_assert(new_codec != NULL);
+
+	codec_rate = !strcasecmp(codec->implementation->iananame, "g722")
+				? codec->implementation->samples_per_second : codec->implementation->actual_samples_per_second;
 
 	return switch_core_codec_init(new_codec,
 								  codec->implementation->iananame,
 								  codec->implementation->modname,
 								  codec->fmtp_in,
-								  codec->implementation->samples_per_second,
+								  codec_rate,
 								  codec->implementation->microseconds_per_packet / 1000,
 								  codec->implementation->number_of_channels,
 								  codec->flags,
@@ -663,7 +673,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_codec_init_with_bitrate(switch_codec
 
 	if (!strncasecmp(codec_name, "PROXY", 5)) {
 		for (iptr = codec_interface->implementations; iptr; iptr = iptr->next) {
-			if ((!channels || channels == iptr->number_of_channels)) {
+			if (!channels || channels == iptr->number_of_channels) {
 				implementation = iptr;
 				break;
 			}
@@ -906,11 +916,13 @@ SWITCH_DECLARE(switch_status_t) switch_core_codec_control(switch_codec_t *codec,
 
 SWITCH_DECLARE(switch_status_t) switch_core_codec_destroy(switch_codec_t *codec)
 {
-	switch_mutex_t *mutex = codec->mutex;
-	switch_memory_pool_t *pool = codec->memory_pool;
+	switch_mutex_t *mutex = NULL;
+	switch_memory_pool_t *pool = NULL;
 	int free_pool = 0;
 
 	switch_assert(codec != NULL);
+	mutex = codec->mutex;
+	pool = codec->memory_pool;
 
 	if (mutex) switch_mutex_lock(mutex);
 

@@ -25,6 +25,7 @@
  *
  * Seven Du <dujinfang@gmail.com>
  * Anthony Minessale <anthm@freeswitch.org>
+ * Jakub Karolczyk <jakub.karolczyk@signalwire.com>
  *
  * mod_av -- FS Video Codec / File Format using libav.org
  *
@@ -33,7 +34,13 @@
 #include <switch.h>
 #include "mod_av.h"
 #include <libavcodec/avcodec.h>
+#ifdef _MSC_VER
+#include <libavcodec/version.h> /* LIBAVCODEC_VERSION_INT */
+#endif
 #include <libavformat/avformat.h>
+#ifdef _MSC_VER
+#include <libavformat/version.h> /* LIBAVFORMAT_VERSION_INT */
+#endif
 
 SWITCH_MODULE_LOAD_FUNCTION(mod_avformat_load);
 SWITCH_MODULE_LOAD_FUNCTION(mod_avcodec_load);
@@ -49,6 +56,7 @@ typedef struct av_mutex_helper_s {
 	switch_memory_pool_t *pool;
 } av_mutex_helper_t;
 
+#if (LIBAVCODEC_VERSION_MAJOR < LIBAVCODEC_V)
 int mod_av_lockmgr_cb(void **m, enum AVLockOp op)
 {
 	av_mutex_helper_t *context = NULL;
@@ -93,6 +101,7 @@ int mod_av_lockmgr_cb(void **m, enum AVLockOp op)
 		}
 	return 0;
 }
+#endif
 
 #ifndef AV_LOG_TRACE
 #define AV_LOG_TRACE 96
@@ -119,7 +128,21 @@ static void log_callback(void *ptr, int level, const char *fmt, va_list vl)
 	}
 
 	// switch_level = SWITCH_LOG_ERROR; // hardcoded for debug
-	switch_log_vprintf(SWITCH_CHANNEL_LOG_CLEAN, switch_level, fmt, vl);
+	if (mod_av_globals.debug < 7) {
+		switch_log_vprintf(SWITCH_CHANNEL_LOG_CLEAN, switch_level, fmt, vl);
+	} else {
+		char buffer[1024] = {0};
+		char *s = NULL;
+		vsprintf(buffer, fmt, vl);
+		s = strstr(buffer, "nal_unit_type");
+		if (!zstr(s) && *(s+15) == '7') {
+			switch_log_printf(SWITCH_CHANNEL_LOG, switch_level, "Read SPS\n");
+		} else if (!zstr(s) && *(s+15) == '8') {
+			switch_log_printf(SWITCH_CHANNEL_LOG, switch_level, "Read PPS\n");
+		} else if (!zstr(s) && *(s+15) == '5') {
+			switch_log_printf(SWITCH_CHANNEL_LOG, switch_level, "Read I-frame\n");
+		}
+	}
 }
 
 
@@ -128,7 +151,11 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_av_shutdown)
 	mod_avcodec_shutdown();
 	avformat_network_deinit();
 	av_log_set_callback(NULL);
+
+#if (LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58,9,100))
 	av_lockmgr_register(NULL);
+#endif
+
 	return SWITCH_STATUS_SUCCESS;
 }
 
@@ -190,11 +217,17 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_av_load)
 {
 	switch_api_interface_t *api_interface = NULL;
 
+#if (LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58,9,100))
 	av_lockmgr_register(&mod_av_lockmgr_cb);
+#endif
+
 	av_log_set_callback(log_callback);
 	av_log_set_level(AV_LOG_INFO);
 	avformat_network_init();
+
+#if (LIBAVFORMAT_VERSION_INT < AV_VERSION_INT(58,9,100))
 	av_register_all();
+#endif
 
 	av_log(NULL, AV_LOG_INFO, "%s %d\n", "av_log callback installed, level=", av_log_get_level());
 

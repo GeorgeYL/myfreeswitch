@@ -23,7 +23,16 @@ if not exist %msbuild% (
 )
 
 echo Building Freeswitch.PTT.Minimal.2017.slnf with %configuration% ^| %platform% ...
-%msbuild% Freeswitch.PTT.Minimal.2017.slnf /m:%procs% /verbosity:minimal /property:Configuration=%configuration% /property:Platform=%platform% /fl /flp:logfile=ptt-minimal-%platform%-%configuration%.log;verbosity=normal
+set sdkver=
+for /f "delims=" %%I in ('dir /b /ad "C:\Program Files (x86)\Windows Kits\10\Include\10.*" 2^>nul ^| sort') do set sdkver=%%~nxI
+
+set sdkarg=
+if not "%sdkver%"=="" (
+  set sdkarg=/property:WindowsTargetPlatformVersion=%sdkver%
+  echo Using Windows SDK: %sdkver%
+)
+
+%msbuild% Freeswitch.PTT.Minimal.2017.slnf /m:%procs% /verbosity:minimal /property:Configuration=%configuration% /property:Platform=%platform% %sdkarg% /fl /flp:logfile=ptt-minimal-%platform%-%configuration%.log;verbosity=normal
 
 if errorlevel 1 (
   echo Build failed. Check log: ptt-minimal-%platform%-%configuration%.log

@@ -468,10 +468,10 @@ static switch_status_t load_config(switch_bool_t reload)
 			char *val = (char *) switch_xml_attr_soft(param, "value");
 
 			if (!strcasecmp(var, "odbc-dsn") && !zstr(val)) {
-				if (switch_odbc_available() || switch_pgsql_available()) {
+				if (switch_database_available(val) == SWITCH_STATUS_SUCCESS) {
 					switch_set_string(globals.odbc_dsn, val);
 				} else {
-					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "ODBC IS NOT AVAILABLE!\n");
+					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "DATABASE IS NOT AVAILABLE!\n");
 				}
 			} else if (!strcasecmp(var, "dbname") && !zstr(val)) {
 				globals.dbname = switch_core_strdup(globals.pool, val);
@@ -953,7 +953,6 @@ switch_status_t navigate_entrys(switch_core_session_t *session, dir_profile_t *p
 SWITCH_STANDARD_APP(directory_function)
 {
 	switch_channel_t *channel = switch_core_session_get_channel(session);
-	int argc = 0;
 	char *argv[6] = { 0 };
 	char *mydata = NULL;
 	const char *profile_name = NULL;
@@ -975,7 +974,7 @@ SWITCH_STANDARD_APP(directory_function)
 	}
 
 	mydata = switch_core_session_strdup(session, data);
-	if ((argc = switch_separate_string(mydata, ' ', argv, (sizeof(argv) / sizeof(argv[0])))) < 2) {
+	if (switch_separate_string(mydata, ' ', argv, (sizeof(argv) / sizeof(argv[0]))) < 2) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Not enough args [%s]\n", data);
 		return;
 	}

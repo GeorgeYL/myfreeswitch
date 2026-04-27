@@ -271,6 +271,7 @@ static int tag_hook(void *user_data, char *name, char **atts, int type)
 
 	if (type == IKS_OPEN || type == IKS_SINGLE) {
 		struct nlsml_node *child_node = malloc(sizeof(*child_node));
+		switch_assert(child_node);
 		child_node->name = name;
 		child_node->tag_def = switch_core_hash_find(globals.tag_defs, name);
 		if (!child_node->tag_def) {
@@ -354,6 +355,12 @@ enum nlsml_match_type nlsml_parse(const char *nlsml_result, const char *uuid)
 		switch_log_printf(SWITCH_CHANNEL_UUID_LOG(parser.uuid), SWITCH_LOG_INFO, "Missing NLSML result\n");
 	}
  end:
+
+	while (parser.cur) {
+		struct nlsml_node *node = parser.cur;
+		parser.cur = node->parent;
+		free(node);
+	}
 
 	if ( p ) {
 		iks_parser_delete(p);
