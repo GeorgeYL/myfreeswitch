@@ -68,8 +68,9 @@ chmod +x ./build-ptt-minimal-linux.sh
 1. 备份当前 `modules.conf`（若存在）
 2. 替换为与 Windows 最小构建对齐的 `build/modules.conf.ptt.minimal`
 3. 若检测到 `src/mod/applications/mod_audio_fork`，自动将其加入 `modules.conf` 并参与编译
-4. 执行 `bootstrap -> configure -> make -> make install`
-5. 构建结束后自动恢复原 `modules.conf`（除非 `--keep-modules-conf`）
+4. 若仓库缺少 `scripts/ci/build-requirements.sh`，临时生成兼容 shim 供 `bootstrap.sh` 使用
+5. 执行 `bootstrap -> configure -> make -> make install`
+6. 构建结束后自动恢复原 `modules.conf`，并清理临时 shim（除非 `--keep-modules-conf`）
 
 说明：当前仓库默认可能不包含 `mod_audio_fork` 源码目录。若你引入了该模块源码（路径为 `src/mod/applications/mod_audio_fork`），脚本会自动纳入编译。
 
