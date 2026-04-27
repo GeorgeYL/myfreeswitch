@@ -12,8 +12,6 @@ JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 SKIP_INSTALL=0
 KEEP_MODULES_CONF=0
 EXTRA_CONFIGURE_ARGS=""
-BOOTSTRAP_REQS_SHIM_CREATED=0
-BOOTSTRAP_REQS_PATH="scripts/ci/build-requirements.sh"
 
 usage() {
   cat <<'EOF'
@@ -73,6 +71,12 @@ if [[ ! -f "build/modules.conf.ptt.minimal" ]]; then
   exit 1
 fi
 
+if [[ ! -f "scripts/ci/build-requirements.sh" ]]; then
+  echo "Missing scripts/ci/build-requirements.sh" >&2
+  echo "Your source tree looks incomplete. Re-sync the repository before building." >&2
+  exit 1
+fi
+
 ORIG_MODULES_BACKUP="modules.conf.bak.ptt.$(date +%Y%m%d%H%M%S)"
 HAD_ORIG_MODULES=0
 if [[ -f modules.conf ]]; then
@@ -81,111 +85,7 @@ if [[ -f modules.conf ]]; then
   echo "Backed up existing modules.conf -> $ORIG_MODULES_BACKUP"
 fi
 
-ensure_bootstrap_requirements() {
-  if [[ -f "$BOOTSTRAP_REQS_PATH" ]]; then
-    return
-  fi
-
-  mkdir -p "$(dirname "$BOOTSTRAP_REQS_PATH")"
-  cat > "$BOOTSTRAP_REQS_PATH" <<'EOF'
-#!/bin/sh
-
-find_first_tool() {
-  for tool in "$@"; do
-    if command -v "$tool" >/dev/null 2>&1; then
-      command -v "$tool"
-      return 0
-    fi
-  done
-  return 1
-}
-
-check_ac_ver() {
-  AUTOCONF=${AUTOCONF:-autoconf}
-  if ! command -v "$AUTOCONF" >/dev/null 2>&1; then
-    echo "build-requirements: autoconf not found." >&2
-    exit 1
-  fi
-}
-
-check_am_ver() {
-  AUTOMAKE=${AUTOMAKE:-automake}
-  if ! command -v "$AUTOMAKE" >/dev/null 2>&1; then
-    echo "build-requirements: automake not found." >&2
-    exit 1
-  fi
-}
-
-check_acl_ver() {
-  ACLOCAL=${ACLOCAL:-aclocal}
-  if ! command -v "$ACLOCAL" >/dev/null 2>&1; then
-    echo "build-requirements: aclocal not found." >&2
-    exit 1
-  fi
-}
-
-check_lt_ver() {
-  libtool=${LIBTOOL:-$(find_first_tool glibtool libtool)}
-  if [ "x$libtool" = "x" ]; then
-    echo "build-requirements: libtool not found." >&2
-    exit 1
-  fi
-  lt_pversion=`$libtool --version 2>/dev/null | sed -e 's/([^)]*)//g;s/^[^0-9]*//;s/[- ].*//g;q'`
-  if [ -z "$lt_pversion" ]; then
-    echo "build-requirements: unable to determine libtool version." >&2
-    exit 1
-  fi
-  lt_version=`echo $lt_pversion | sed -e 's/\([a-z]*\)$/.\1/'`
-  IFS=.; set $lt_version; IFS=' '
-  if [ -z "$1" ]; then
-    lt_major=0
-  else
-    lt_major=$1
-  fi
-}
-
-check_libtoolize() {
-  if [ -n "${LIBTOOLIZE:-}" ]; then
-    libtoolize="$LIBTOOLIZE"
-  else
-    libtoolize=$(find_first_tool glibtoolize libtoolize libtoolize22 libtoolize15 libtoolize14)
-  fi
-  if [ "x$libtoolize" = "x" ] || [ ! -x "$libtoolize" ]; then
-    echo "build-requirements: libtoolize not found." >&2
-    exit 1
-  fi
-}
-
-check_make() {
-  make=$(find_first_tool make gmake)
-  if [ "x$make" = "x" ]; then
-    echo "build-requirements: GNU make not found." >&2
-    exit 1
-  fi
-  make_version=`$make --version 2>/dev/null | head -1`
-}
-
-check_awk() {
-  awk=${AWK:-awk}
-  if ! command -v "$awk" >/dev/null 2>&1; then
-    echo "build-requirements: awk not found." >&2
-    exit 1
-  fi
-  awk_version=`$awk -W version 2>/dev/null | head -1`
-}
-EOF
-  chmod +x "$BOOTSTRAP_REQS_PATH"
-  BOOTSTRAP_REQS_SHIM_CREATED=1
-  echo "Generated compatibility shim: $BOOTSTRAP_REQS_PATH"
-}
-
 cleanup() {
-  if [[ "$BOOTSTRAP_REQS_SHIM_CREATED" -eq 1 ]]; then
-    rm -f "$BOOTSTRAP_REQS_PATH"
-    rmdir --ignore-fail-on-non-empty "$(dirname "$BOOTSTRAP_REQS_PATH")" 2>/dev/null || true
-    echo "Removed generated bootstrap requirements shim"
-  fi
-
   if [[ "$KEEP_MODULES_CONF" -eq 1 ]]; then
     echo "Keeping generated modules.conf as requested (--keep-modules-conf)."
     return
@@ -214,14 +114,17 @@ else
   echo "mod_audio_fork source not found at src/mod/applications/mod_audio_fork; continuing without it"
 fi
 
-ensure_bootstrap_requirements
-
 echo "==> bootstrap"
-./bootstrap.sh -j
+# Run bootstrap serially for stability. Parallel bootstrap (-j) can intermittently
+# produce incomplete autotools metadata on some environments.
+./bootstrap.sh -v
+
+# Avoid stale configure cache poisoning when flags/environment changed between runs.
+rm -f config.cache
 
 echo "==> configure"
 # shellcheck disable=SC2086
-./configure -C --prefix="$PREFIX" $EXTRA_CONFIGURE_ARGS
+./configure --prefix="$PREFIX" $EXTRA_CONFIGURE_ARGS
 
 echo "==> make"
 make -j"$JOBS"
