@@ -33,6 +33,12 @@ Get-NetUDPEndpoint -LocalPort 5060 | Select-Object LocalAddress, LocalPort
 
 同号在同一组内互通，不同号组间隔离。
 
+半双工话权按键（默认）：
+
+- DTMF `9`：申请/续租话权
+- DTMF `0`：释放话权
+- DTMF `1` / `2` / `3`：机器人播报触发
+
 ---
 
 ## 3. MicroSIP 配置（推荐）
@@ -148,6 +154,13 @@ Get-NetUDPEndpoint -LocalPort 5060 | Select-Object LocalAddress, LocalPort
 6. B 挂断后改拨 `721`。
 7. 此时 A(711) 与 B(721) 互不可听，确认组间隔离。
 
+半双工验证（同一房间）：
+
+1. A 与 B 都拨 `711`。
+2. A 按 `9`，A 说话时 B 只听。
+3. B 按 `9`，若 A 未释放，应保持 `busy` 状态。
+4. A 按 `0` 释放后，B 按 `9` 可成为当前发言方。
+
 ---
 
 ## 6. API 联动验证
@@ -194,6 +207,13 @@ Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8090/api/logs" | ConvertTo-
 
 1. `health` 返回 `{"status":"ok"}`。
 2. 初始 `logs` 可能为空数组；完成一次通话后应出现记录。
+
+补充：查看半双工状态
+
+```powershell
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8090/api/ptt/state" | ConvertTo-Json -Depth 6
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8090/api/ptt/state/1/1" | ConvertTo-Json -Depth 6
+```
 
 按 `call_id` 查询与下载录音：
 

@@ -8,6 +8,8 @@
 - 对讲混音（mod_conference）
 - ESL 事件（mod_event_socket）
 - XML 路由与基础音频文件能力
+- HTTP 回调控制（mod_httapi）
+- 若源码存在则自动启用低延迟媒体分流（mod_audio_fork）
 
 ---
 
@@ -98,8 +100,11 @@ chmod +x ./build-ptt-minimal-linux.sh
 
 1. 备份当前 `modules.conf`（若存在）
 2. 替换为 `build/modules.conf.ptt.minimal`
+3. 若检测到 `src/mod/applications/mod_audio_fork`，自动将其加入 `modules.conf` 并参与编译
 3. 执行 `bootstrap -> configure -> make -> make install`
 4. 构建结束后自动恢复原 `modules.conf`（除非 `--keep-modules-conf`）
+
+说明：当前仓库默认未包含 `mod_audio_fork` 源码目录。若你引入了该模块源码（路径需为 `src/mod/applications/mod_audio_fork`），脚本会自动纳入编译，无需额外改动。
 
 ---
 

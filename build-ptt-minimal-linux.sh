@@ -104,6 +104,15 @@ trap restore_modules_conf EXIT
 
 cp build/modules.conf.ptt.minimal modules.conf
 
+if [[ -d "src/mod/applications/mod_audio_fork" ]]; then
+  if ! grep -q '^applications/mod_audio_fork$' modules.conf; then
+    echo "applications/mod_audio_fork" >> modules.conf
+  fi
+  echo "Detected src/mod/applications/mod_audio_fork; enabled in modules.conf"
+else
+  echo "mod_audio_fork source not found at src/mod/applications/mod_audio_fork; continuing without it"
+fi
+
 if [[ "$ALLOW_WARNINGS" -eq 1 ]]; then
   # Keep builds moving on older codebases that trigger modern compiler warnings.
   export CFLAGS="${CFLAGS:-} -Wno-error"
