@@ -1,0 +1,19 @@
+<include>
+  <extension name="ai-bot-router">
+    <!-- Robot extension range: 7500-7599 -->
+    <condition field="destination_number" expression="^(75\d\d)$">
+      <action application="set" data="bot_ext=$1"/>
+      <action application="set" data="hangup_after_bridge=true"/>
+
+      <!-- Keep A-leg codec stable for low latency and easier transcoding control. -->
+      <action application="set" data="absolute_codec_string=PCMU,PCMA"/>
+
+      <!-- Optional tracking headers for server S logs. -->
+      <action application="export" data="nolocal:robot_call=true"/>
+      <action application="export" data="nolocal:robot_target=${bot_ext}"/>
+
+      <!-- Route to server S via external gateway bot_s. -->
+      <action application="bridge" data="sofia/gateway/bot_s/${bot_ext}"/>
+    </condition>
+  </extension>
+</include>

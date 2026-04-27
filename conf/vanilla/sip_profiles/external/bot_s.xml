@@ -1,0 +1,27 @@
+<include>
+  <gateway name="bot_s">
+    <!-- If server S requires register/auth, fill username/password/realm/proxy and set register=true. -->
+    <param name="register" value="false"/>
+
+    <!-- Replace with your server S SIP address. -->
+    <param name="proxy" value="10.10.10.88:5060"/>
+
+    <!-- Optional auth fields when register/auth is needed. -->
+    <!-- <param name="username" value="botfs"/> -->
+    <!-- <param name="password" value="change_me"/> -->
+    <!-- <param name="realm" value="10.10.10.88"/> -->
+
+    <!-- Keep caller identity stable for routing/trace on server S. -->
+    <param name="from-domain" value="$${domain}"/>
+    <param name="caller-id-in-from" value="true"/>
+
+    <!-- Narrow codec set first for deterministic interop. -->
+    <param name="codec-prefs" value="PCMU,PCMA"/>
+
+    <!-- Keepalive to detect upstream health quickly. -->
+    <param name="ping" value="15"/>
+
+    <!-- For NAT scenarios, tune these by deployment. -->
+    <param name="extension-in-contact" value="true"/>
+  </gateway>
+</include>

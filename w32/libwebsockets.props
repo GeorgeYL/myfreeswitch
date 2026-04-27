@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <libwebsocketsPropsImported>true</libwebsocketsPropsImported>
+    <LibraryConfiguration Condition="$(Configuration.ToLower().Contains('debug'))">Debug</LibraryConfiguration>
+    <LibraryConfiguration Condition="$(Configuration.ToLower().Contains('release'))">Release</LibraryConfiguration>
+  </PropertyGroup>
+
+  <PropertyGroup Label="UserMacros">
+    <libwebsocketsDir Condition="'$(libwebsocketsDir)'=='' and '$(LIBWEBSOCKETS_DIR)'!=''">$(LIBWEBSOCKETS_DIR)</libwebsocketsDir>
+    <libwebsocketsLibraryName Condition="'$(libwebsocketsLibraryName)'=='' and '$(LIBWEBSOCKETS_LIB)'!=''">$(LIBWEBSOCKETS_LIB)</libwebsocketsLibraryName>
+    <libwebsocketsLibraryName Condition="'$(libwebsocketsLibraryName)'==''">websockets.lib</libwebsocketsLibraryName>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(libwebsocketsDir)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>$(libwebsocketsDir)\lib\$(Platform)\$(LibraryConfiguration);$(libwebsocketsDir)\lib\$(Platform);$(libwebsocketsDir)\lib;$(libwebsocketsDir)\build\lib\$(LibraryConfiguration);$(libwebsocketsDir)\build\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(libwebsocketsLibraryName);%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+</Project>
