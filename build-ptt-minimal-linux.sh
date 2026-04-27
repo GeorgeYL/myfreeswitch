@@ -73,6 +73,38 @@ if [[ ! -f "build/modules.conf.ptt.minimal" ]]; then
   exit 1
 fi
 
+check_source_integrity() {
+  local missing=0
+  local required_files=(
+    "acinclude.m4"
+    "configure.ac"
+    "build/config/sac-pkg-config.m4"
+    "build/standalone_module/freeswitch.pc.in"
+    "scripts/ci/build-requirements.sh"
+    "src/mod/databases/mod_mariadb/Makefile.am"
+    "src/mod/databases/mod_pgsql/Makefile.am"
+    "src/mod/formats/mod_png/Makefile.am"
+    "src/mod/languages/mod_python3/Makefile.am"
+  )
+
+  for f in "${required_files[@]}"; do
+    if [[ ! -f "$f" ]]; then
+      echo "Missing required source file: $f" >&2
+      missing=1
+    fi
+  done
+
+  if [[ "$missing" -ne 0 ]]; then
+    echo "Source tree is incomplete; bootstrap/autotools will fail with AM_CONDITIONAL/AC_* macro errors." >&2
+    echo "Fix on Linux host:" >&2
+    echo "  1) Ensure you are in the correct repository root" >&2
+    echo "  2) Restore tracked files: git checkout -- ." >&2
+    echo "  3) Sync latest code: git pull --rebase" >&2
+    echo "  4) If needed: git submodule update --init --recursive" >&2
+    exit 1
+  fi
+}
+
 ensure_bootstrap_requirements() {
   if [[ -f "$BOOTSTRAP_REQS_PATH" ]]; then
     return
@@ -205,6 +237,7 @@ trap cleanup EXIT
 cp build/modules.conf.ptt.minimal modules.conf
 echo "Loaded Windows-aligned minimal modules list from build/modules.conf.ptt.minimal"
 
+check_source_integrity
 ensure_bootstrap_requirements
 
 if [[ -d "src/mod/applications/mod_audio_fork" ]]; then
