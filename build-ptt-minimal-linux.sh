@@ -237,6 +237,10 @@ trap cleanup EXIT
 cp build/modules.conf.ptt.minimal modules.conf
 echo "Loaded Windows-aligned minimal modules list from build/modules.conf.ptt.minimal"
 
+# mod_spandsp is not part of the Windows-aligned minimal set. Remove it
+# defensively so configure does not hard-require spandsp >= 3.0.
+sed -i '/^[[:space:]]*applications\/mod_spandsp[[:space:]]*$/d' modules.conf
+
 check_source_integrity
 ensure_bootstrap_requirements
 
@@ -259,7 +263,7 @@ rm -f config.cache
 
 echo "==> configure"
 # shellcheck disable=SC2086
-./configure --prefix="$PREFIX" $EXTRA_CONFIGURE_ARGS
+FS_REQUIRE_SPANDSP=no ./configure --prefix="$PREFIX" $EXTRA_CONFIGURE_ARGS
 
 echo "==> make"
 make -j"$JOBS"

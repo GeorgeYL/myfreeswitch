@@ -71,10 +71,12 @@ chmod +x ./build-ptt-minimal-linux.sh
 
 1. 备份当前 `modules.conf`（若存在）
 2. 替换为与 Windows 最小构建对齐的 `build/modules.conf.ptt.minimal`
-3. 若检测到 `src/mod/applications/mod_audio_fork`，自动将其加入 `modules.conf` 并参与编译
-4. 执行串行 `bootstrap -> configure -> make -> make install`
-5. 在 `configure` 前自动清理根目录 `config.cache`，避免环境变量变化导致缓存冲突
-6. 构建结束后自动恢复原 `modules.conf`（除非 `--keep-modules-conf`）
+3. 显式移除 `applications/mod_spandsp`，避免最小构建触发 `spandsp >= 3.0` 的强制检查
+4. 若检测到 `src/mod/applications/mod_audio_fork`，自动将其加入 `modules.conf` 并参与编译
+5. 执行串行 `bootstrap -> configure -> make -> make install`
+6. 在 `configure` 前自动清理根目录 `config.cache`，避免环境变量变化导致缓存冲突
+7. 构建结束后自动恢复原 `modules.conf`（除非 `--keep-modules-conf`）
+7. 在最小构建路径中以 `FS_REQUIRE_SPANDSP=no` 调用 `configure`，避免 `mod_spandsp` 未启用时被 `spandsp` 依赖误阻塞
 
 说明：当前仓库默认可能不包含 `mod_audio_fork` 源码目录。若你引入了该模块源码（路径为 `src/mod/applications/mod_audio_fork`），脚本会自动纳入编译。
 

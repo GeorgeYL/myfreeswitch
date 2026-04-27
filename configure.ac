@@ -711,17 +711,26 @@ PKG_CHECK_MODULES([MARIADB], [libmariadb >= 3.0.9],[
   ])
 ])
 
-require_spandsp=yes
-for mods_file in "${srcdir}/modules.conf" "modules.conf"; do
-  if test -f "${mods_file}"; then
-    if grep -Eq '^[[:space:]]*applications/mod_spandsp([[:space:]]*|$)' "${mods_file}"; then
-      require_spandsp=yes
-    else
-      require_spandsp=no
+require_spandsp=auto
+if test "x${FS_REQUIRE_SPANDSP}" = "xyes"; then
+  require_spandsp=yes
+elif test "x${FS_REQUIRE_SPANDSP}" = "xno"; then
+  require_spandsp=no
+else
+  for mods_file in "${srcdir}/modules.conf" "modules.conf"; do
+    if test -f "${mods_file}"; then
+      if grep -Eq '^[[:space:]]*applications/mod_spandsp([[:space:]]*|$)' "${mods_file}"; then
+        require_spandsp=yes
+      else
+        require_spandsp=no
+      fi
+      break
     fi
-    break
+  done
+  if test "x${require_spandsp}" = "xauto"; then
+    require_spandsp=yes
   fi
-done
+fi
 
 if test "x${require_spandsp}" = "xyes"; then
   PKG_CHECK_MODULES([SPANDSP], [spandsp >= 3.0],[
