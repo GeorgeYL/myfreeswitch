@@ -711,10 +711,30 @@ PKG_CHECK_MODULES([MARIADB], [libmariadb >= 3.0.9],[
   ])
 ])
 
-PKG_CHECK_MODULES([SPANDSP], [spandsp >= 3.0],[
-  AM_CONDITIONAL([HAVE_SPANDSP],[true])],[
-    AC_MSG_ERROR([no usable spandsp; please install spandsp3 devel package or equivalent])
-])
+require_spandsp=yes
+for mods_file in "${srcdir}/modules.conf" "modules.conf"; do
+  if test -f "${mods_file}"; then
+    if grep -Eq '^[[:space:]]*applications/mod_spandsp([[:space:]]*|$)' "${mods_file}"; then
+      require_spandsp=yes
+    else
+      require_spandsp=no
+    fi
+    break
+  fi
+done
+
+if test "x${require_spandsp}" = "xyes"; then
+  PKG_CHECK_MODULES([SPANDSP], [spandsp >= 3.0],[
+    AM_CONDITIONAL([HAVE_SPANDSP],[true])],[
+      AC_MSG_ERROR([no usable spandsp; please install spandsp3 devel package or equivalent])
+  ])
+else
+  PKG_CHECK_MODULES([SPANDSP], [spandsp >= 3.0],[
+    AM_CONDITIONAL([HAVE_SPANDSP],[true])],[
+    AC_MSG_RESULT([spandsp not found; mod_spandsp will remain disabled (not enabled in modules.conf)])
+    AM_CONDITIONAL([HAVE_SPANDSP],[false])
+  ])
+fi
 
 PKG_CHECK_MODULES([SOFIA_SIP], [sofia-sip-ua >= 1.13.17],[
   AM_CONDITIONAL([HAVE_SOFIA_SIP],[true])],[
