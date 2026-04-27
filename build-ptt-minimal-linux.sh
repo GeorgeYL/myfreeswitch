@@ -105,6 +105,24 @@ check_source_integrity() {
   fi
 }
 
+check_build_dependencies() {
+  if ! command -v pkg-config >/dev/null 2>&1; then
+    echo "Missing required tool: pkg-config" >&2
+    exit 1
+  fi
+
+  if ! pkg-config --exists 'sofia-sip-ua >= 1.13.17'; then
+    echo "Missing required dependency: sofia-sip-ua >= 1.13.17" >&2
+    echo "Install package by distro, then re-run this script:" >&2
+    echo "  Debian/Ubuntu: sudo apt-get install -y libsofia-sip-ua-dev" >&2
+    echo "  RHEL/Rocky/Alma/CentOS: sudo dnf install -y sofia-sip-devel" >&2
+    echo "  Fedora: sudo dnf install -y sofia-sip-devel" >&2
+    echo "  openSUSE: sudo zypper install -y libsofia-sip-ua-devel" >&2
+    echo "  Arch: sudo pacman -S --needed sofia-sip" >&2
+    exit 1
+  fi
+}
+
 ensure_bootstrap_requirements() {
   if [[ -f "$BOOTSTRAP_REQS_PATH" ]]; then
     return
@@ -243,6 +261,7 @@ sed -i '/^[[:space:]]*applications\/mod_spandsp[[:space:]]*$/d' modules.conf
 
 check_source_integrity
 ensure_bootstrap_requirements
+check_build_dependencies
 
 if [[ -d "src/mod/applications/mod_audio_fork" ]]; then
   if ! grep -q '^applications/mod_audio_fork$' modules.conf; then

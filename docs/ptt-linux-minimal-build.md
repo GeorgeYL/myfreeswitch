@@ -30,12 +30,14 @@ sudo apt-get update
 sudo apt-get install -y \
   build-essential autoconf automake libtool pkg-config git \
   libssl-dev libcurl4-openssl-dev libpcre3-dev libspeexdsp-dev \
-  libsndfile1-dev libsqlite3-dev libedit-dev yasm
+  libsndfile1-dev libsqlite3-dev libedit-dev yasm \
+  libsofia-sip-ua-dev
 ```
 
 说明：
 
 - 不同发行版包名略有差异，可按 `./configure` 报错补齐。
+- 该最小构建清单包含 `endpoints/mod_sofia`，因此必须安装 `sofia-sip` 开发包（Ubuntu/Debian 为 `libsofia-sip-ua-dev`）。
 - 该最小构建清单默认不启用 `applications/mod_spandsp`，因此通常不需要 `spandsp` 开发包。
 - 若你在 `modules.conf` 中显式启用了 `applications/mod_spandsp`，请额外安装发行版对应的 `spandsp` 开发包（如 `libspandsp-dev` / `spandsp3-devel`）。
 
